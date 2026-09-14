@@ -23,6 +23,11 @@ def ref_norm_cdf(x: float) -> float:
     return float(erfc(-mpf(x) / sqrt(2)) / 2)
 
 
+def ref_log_moneyness(spot: float, strike: float) -> float:
+    """``log(S / K)`` at fifty digits, rounded once to double."""
+    return float(log(mpf(spot) / mpf(strike)))
+
+
 def ref_bsm(
     spot: float,
     strike: float,
@@ -46,9 +51,6 @@ def ref_bsm(
     d2 = d1 - sd
     sign = mpf(1) if is_call else mpf(-1)
 
-    def n(x: object) -> object:
-        return erfc(-x / sqrt(2)) / 2
-
-    return float(
-        sign * (s * exp((b - r) * t) * n(sign * d1) - k * exp(-r * t) * n(sign * d2))
-    )
+    n_d1 = erfc(-(sign * d1) / sqrt(2)) / 2
+    n_d2 = erfc(-(sign * d2) / sqrt(2)) / 2
+    return float(sign * (s * exp((b - r) * t) * n_d1 - k * exp(-r * t) * n_d2))
