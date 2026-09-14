@@ -16,12 +16,14 @@ an independent method that should agree to a stated tolerance.
 
 ## Phase 2 — Greeks
 
-- [ ] First order: delta, vega, theta, rho
-- [ ] Second order: gamma, vanna, volga
-- [ ] Third order and the remaining cross-sensitivities: charm, veta, speed, colour, zomma
-- [ ] Every analytic form checked against central differences of the price function
-- [ ] Dual delta and dual gamma, the strike sensitivities
-- [ ] Greeks at the degenerate boundaries, where the analytic forms are limits
+- [x] First order: delta, vega, theta
+- [x] The discount-rate and cost-of-carry sensitivities, taken separately
+- [x] Second order: gamma, vanna, volga
+- [x] Third order and the remaining cross-sensitivities: charm, veta, speed, colour, zomma
+- [x] Every analytic form checked against a numerical derivative of the price
+- [x] Dual delta and dual gamma, the strike sensitivities
+- [x] Forward delta, for the currency quoting convention
+- [x] Degenerate inputs rejected, where the payoff is kinked and no derivative exists
 
 ## Phase 3 — Implied volatility
 
