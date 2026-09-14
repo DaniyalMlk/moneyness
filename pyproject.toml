@@ -30,6 +30,10 @@ strict = true
 files = ["src", "tests"]
 warn_unreachable = true
 
+[[tool.mypy.overrides]]
+module = "mpmath.*"
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
