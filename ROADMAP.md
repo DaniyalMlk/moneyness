@@ -6,12 +6,13 @@ an independent method that should agree to a stated tolerance.
 
 ## Phase 1 — Pricing core
 
-- [ ] Normal density, distribution and quantile functions accurate into the tails
-- [ ] Generalised Black-Scholes-Merton price under a cost-of-carry parameter
-- [ ] Spot, forward, futures and currency conventions expressed through that parameter
-- [ ] Degenerate inputs: zero volatility, zero time, zero spot, unbounded strike
-- [ ] Put-call parity asserted as an identity, not an example
-- [ ] Validation against published option values
+- [x] Normal density, distribution and quantile functions accurate into the tails
+- [x] Generalised Black-Scholes-Merton price under a cost-of-carry parameter
+- [x] Spot, forward, futures and currency conventions expressed through that parameter
+- [x] Degenerate inputs: zero volatility, zero time, zero spot, zero strike
+- [x] Put-call parity asserted as an identity, not an example
+- [x] Log-moneyness evaluated so that it survives the approach to the strike
+- [x] Validation against an independent evaluation at fifty decimal digits
 
 ## Phase 2 — Greeks
 
