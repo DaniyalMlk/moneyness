@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mpmath import diff, erfc, exp, log, mp, mpf, sqrt
+from mpmath import diff, erfc, exp, log, mp, mpf, pi, sqrt
 
 mp.dps = 50
 
@@ -130,3 +130,53 @@ def ref_derivative(
     if len(wrt) == 1:
         return float(diff(at, point[0], orders[0]))
     return float(diff(at, point, orders))
+
+
+def ref_black(forward: float, strike: float, total_vol: float, is_call: bool) -> float:
+    """The undiscounted Black price in total-volatility coordinates, at fifty digits."""
+    f, k, w = mpf(forward), mpf(strike), mpf(total_vol)
+    sign = mpf(1) if is_call else mpf(-1)
+    if w <= 0:
+        return float(max(sign * (f - k), mpf(0)))
+    d1 = log(f / k) / w + w / 2
+    d2 = d1 - w
+    n_d1 = erfc(-(sign * d1) / sqrt(2)) / 2
+    n_d2 = erfc(-(sign * d2) / sqrt(2)) / 2
+    return float(sign * (f * n_d1 - k * n_d2))
+
+
+def ref_black_vega(forward: float, strike: float, total_vol: float) -> float:
+    """``F phi(d1)`` evaluated at fifty digits.
+
+    Deliberately the closed form rather than a numerical derivative, and the
+    exception to this module's usual rule. Vega decays like ``e^{-d1^2 / 2}``,
+    so differentiating it numerically is severely ill conditioned in the wings:
+    at a strike of 20 against a forward of 100 with a total volatility of 0.1
+    the true value is 1.008e-55, and ``mpmath``'s ``diff`` returns it wrong by
+    4.7e-4 relative even carrying fifty digits, while the implementation under
+    test is accurate to 3.1e-14. A numerical oracle there would be measuring the
+    oracle.
+
+    The derivative relationship is not taken on trust because of this; it is
+    asserted separately by :func:`ref_black_derivative`, over the range of
+    inputs where numerical differentiation is trustworthy.
+    """
+    f, k, w = mpf(forward), mpf(strike), mpf(total_vol)
+    d1 = log(f / k) / w + w / 2
+    return float(f * exp(-(d1**2) / 2) / sqrt(2 * pi))
+
+
+def ref_black_derivative(forward: float, strike: float, total_vol: float) -> float:
+    """``d(black)/d(total_vol)`` by numerical differentiation at fifty digits.
+
+    Trustworthy only where the price is not vanishingly small; used to confirm
+    that :func:`ref_black_vega`'s closed form really is the derivative.
+    """
+    f, k = mpf(forward), mpf(strike)
+
+    def at(w: Any) -> Any:
+        d1 = log(f / k) / w + w / 2
+        d2 = d1 - w
+        return f * (erfc(-d1 / sqrt(2)) / 2) - k * (erfc(-d2 / sqrt(2)) / 2)
+
+    return float(diff(at, mpf(total_vol)))

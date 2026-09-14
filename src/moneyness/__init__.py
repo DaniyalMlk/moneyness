@@ -32,11 +32,17 @@ from .greeks import (
     volga,
     zomma,
 )
+from .implied import Bounds, Method, Quote, Solution, bounds, implied_vol, solve
 from .normal import norm_cdf, norm_pdf, norm_ppf
 
 __all__ = [
+    "Bounds",
     "Inputs",
+    "Method",
     "OptionType",
+    "Quote",
+    "Solution",
+    "bounds",
     "charm",
     "colour",
     "d1_d2",
@@ -46,6 +52,7 @@ __all__ = [
     "forward",
     "forward_delta",
     "gamma",
+    "implied_vol",
     "intrinsic",
     "log_moneyness",
     "norm_cdf",
@@ -55,6 +62,7 @@ __all__ = [
     "price",
     "rho",
     "rho_carry",
+    "solve",
     "speed",
     "theta",
     "vanna",
