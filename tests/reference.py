@@ -13,9 +13,13 @@ the implementation rather than about the person who typed the expected values.
 
 from __future__ import annotations
 
-from mpmath import erfc, exp, log, mp, mpf, sqrt
+from typing import Any
+
+from mpmath import diff, erfc, exp, log, mp, mpf, sqrt
 
 mp.dps = 50
+
+PARAMETERS = ("spot", "strike", "time", "rate", "vol", "carry")
 
 
 def ref_norm_cdf(x: float) -> float:
@@ -54,3 +58,75 @@ def ref_bsm(
     n_d1 = erfc(-(sign * d1) / sqrt(2)) / 2
     n_d2 = erfc(-(sign * d2) / sqrt(2)) / 2
     return float(sign * (s * exp((b - r) * t) * n_d1 - k * exp(-r * t) * n_d2))
+
+
+def mp_bsm(
+    spot: Any,
+    strike: Any,
+    time: Any,
+    rate: Any,
+    vol: Any,
+    carry: Any,
+    is_call: bool,
+) -> Any:
+    """The price, kept in mpmath's arbitrary precision rather than rounded.
+
+    Separate from :func:`ref_bsm` because differentiating it numerically needs
+    the extra digits: a central difference gives back roughly two thirds of the
+    precision it is handed, so starting from fifty digits leaves well over
+    thirty in the derivative, and the comparison against the analytic Greek is
+    then limited by the analytic side rather than by this one.
+    """
+    s, k, t = mpf(spot), mpf(strike), mpf(time)
+    r, v, b = mpf(rate), mpf(vol), mpf(carry)
+    sign = mpf(1) if is_call else mpf(-1)
+
+    if t == 0 or v == 0 or s == 0 or k == 0:
+        return max(exp(-r * t) * sign * (s * exp(b * t) - k), mpf(0))
+
+    sd = v * sqrt(t)
+    d1 = (log(s / k) + (b + v**2 / 2) * t) / sd
+    d2 = d1 - sd
+    n_d1 = erfc(-(sign * d1) / sqrt(2)) / 2
+    n_d2 = erfc(-(sign * d2) / sqrt(2)) / 2
+    return sign * (s * exp((b - r) * t) * n_d1 - k * exp(-r * t) * n_d2)
+
+
+def ref_derivative(
+    params: dict[str, float],
+    is_call: bool,
+    wrt: tuple[str, ...],
+    orders: tuple[int, ...],
+) -> float:
+    """A partial derivative of the price, taken numerically at high precision.
+
+    ``wrt`` names the parameters to differentiate against and ``orders`` gives
+    the order in each, so ``(("spot", "vol"), (1, 1))`` is vanna and
+    ``(("spot",), (3,))`` is speed.
+
+    Differentiating the reference rather than comparing against a second
+    closed form is deliberate. A second closed form would be another chance to
+    make the same algebra mistake twice; a numerical derivative of the price
+    shares nothing with the analytic Greek except the price itself, so an error
+    in the Greek cannot hide.
+    """
+    fixed = dict(params)
+
+    def at(*values: Any) -> Any:
+        local = dict(fixed)
+        for name, value in zip(wrt, values, strict=True):
+            local[name] = value
+        return mp_bsm(
+            local["spot"],
+            local["strike"],
+            local["time"],
+            local["rate"],
+            local["vol"],
+            local["carry"],
+            is_call,
+        )
+
+    point = tuple(mpf(fixed[name]) for name in wrt)
+    if len(wrt) == 1:
+        return float(diff(at, point[0], orders[0]))
+    return float(diff(at, point, orders))
