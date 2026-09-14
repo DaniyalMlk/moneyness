@@ -27,12 +27,14 @@ an independent method that should agree to a stated tolerance.
 
 ## Phase 3 — Implied volatility
 
-- [ ] No-arbitrage price bounds, and rejection of quotes outside them
-- [ ] Rational initial guess from the normalised price
-- [ ] Newton iteration on vega with a bracketed fallback
-- [ ] Brent's method on the bracket, for the wings where Newton stalls
-- [ ] Round-trip recovery across strike, maturity and volatility, to a stated tolerance
-- [ ] Behaviour at the bound: intrinsic-value quotes and vanishing vega
+- [x] No-arbitrage price bounds, and rejection of quotes outside them
+- [x] The inversion posed in total volatility on the forward, free of carry and discounting
+- [x] Initial guess from the normalised price
+- [x] Newton iteration on vega, safeguarded by a maintained bracket
+- [x] Brent's method on the bracket, as an independent derivative-free check
+- [x] Convergence judged on the step in volatility rather than the price residual
+- [x] Round-trip recovery across strike, maturity and volatility, to the bound the quote supports
+- [x] Behaviour at the bound: intrinsic-value quotes, and quotes no volatility attains
 
 ## Phase 4 — American exercise
 
@@ -62,7 +64,8 @@ an independent method that should agree to a stated tolerance.
 
 ## Phase 7 — Interface
 
-- [ ] Command-line pricing, Greeks and implied-volatility entry points
-- [ ] Table output for a strike ladder across maturities
+- [x] Command-line pricing, Greeks and implied-volatility entry points
+- [x] Table output for a strike ladder
+- [ ] Table output across maturities
 - [ ] Surface fitting and arbitrage reporting from the command line
 - [ ] Continuous integration for the test suite and the type checker
