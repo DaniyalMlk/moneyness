@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import math
 
-__all__ = ["norm_pdf", "norm_cdf", "norm_ppf"]
+__all__ = ["norm_cdf", "norm_pdf", "norm_ppf"]
 
 _SQRT_2 = math.sqrt(2.0)
 _SQRT_2PI = math.sqrt(2.0 * math.pi)
