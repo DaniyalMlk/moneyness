@@ -44,7 +44,8 @@ an independent method that should agree to a stated tolerance.
 - [x] Richardson extrapolation over the layer count
 - [x] Broadie-Detemple smoothing, without which the extrapolation makes the answer worse
 - [x] Convergence to the closed form for the European case
-- [ ] Bjerksund-Stensland closed-form approximation as an independent check
+- [x] Bjerksund-Stensland closed-form approximation as an independent check
+- [ ] The 2002 two-step boundary, which needs a bivariate normal distribution function
 
 ## Phase 5 — Volatility surface
 
