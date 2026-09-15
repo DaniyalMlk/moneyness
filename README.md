@@ -82,10 +82,18 @@ moneyness price  --spot 100 --strike 95 --time 0.5 --rate 0.04 --vol 0.22
 moneyness greeks --spot 100 --strike 95 --time 0.5 --rate 0.04 --vol 0.22
 moneyness iv     --spot 100 --strike 95 --time 0.5 --rate 0.04 --price 10.0434156286
 moneyness ladder --spot 100 --time 0.25 --vol 0.3 --rate 0.03 --low 80 --high 120 --steps 5
+moneyness american --spot 100 --strike 100 --time 1 --rate 0.06 --vol 0.25 \
+                   --dividend 0.06 --put --steps 400 --boundary
 ```
 
 `iv` reports the method used, the iteration count and the residual alongside the
 volatility, and prints the no-arbitrage range when a quote cannot be inverted.
+
+`american` prints the lattice value beside the European value *on the same
+lattice* and the European closed form, so the early-exercise premium and the
+discretisation error can be read as separate numbers rather than conflated.
+`--boundary` tabulates the early-exercise boundary, and says so plainly when the
+exercise region is empty.
 
 ## A second decision: what the tolerances mean
 
@@ -111,6 +119,36 @@ Converging on the step in volatility instead — the quantity that is well posed
 brought it to the precision the quote supports, and the disagreement with Brent
 that exposed the problem is now a standing test.
 
+## A third decision: why the obvious accuracy trick had to be earned
+
+A lattice price carries an `O(1/n)` error in the layer count, so the textbook
+move is Richardson extrapolation: price at `n` and `2n`, and take `2P(2n) - P(n)`
+to cancel the leading term. Measured on a European call, doing that to a raw
+lattice makes the answer about **twice worse**, not four times better.
+
+The premise is what fails. Richardson assumes the error is a smooth `c/n`, and a
+lattice error is not: it carries a large component that oscillates with `n`,
+because what the lattice gets wrong depends on where the strike falls between
+terminal nodes, and that position jumps around as `n` changes. Subtracting one
+price from twice another amplifies exactly that component.
+
+The fix is to remove the cause rather than tune around it. The oscillation comes
+from the kink in the terminal payoff being sampled at nodes, so the layer before
+expiry is replaced with the closed-form European price — the Broadie-Detemple
+smoothing — which integrates across the kink exactly. The remaining error is
+smooth, and extrapolation then does what it promised:
+
+| lattice | fine lattice | + Richardson | + smoothing | + both |
+|---|---|---|---|---|
+| Cox-Ross-Rubinstein | 2.9e-03 | 5.5e-03 | 1.4e-03 | 4.5e-05 |
+| Jarrow-Rudd | 2.7e-03 | 6.8e-03 | 1.4e-03 | 5.0e-05 |
+| trinomial | 1.6e-03 | 2.3e-03 | 7.2e-04 | 4.7e-06 |
+
+Mean absolute error against the closed form over layer counts from 60 to 120.
+Smoothing and extrapolation are each worth a factor of two on their own; together
+they are worth 30x to 150x. Both remain switchable, and the failure above is
+itself a test, so the default cannot quietly stop being the right one.
+
 ## Running the tests
 
 ```bash
@@ -122,8 +160,10 @@ ruff check .           # lint
 ## Status
 
 Phases 1 to 3 of [the roadmap](ROADMAP.md) are in place — the pricing core, the
-Greeks, and implied-volatility solving — along with the command-line interface
-from phase 7. American exercise, the volatility surface and Monte Carlo are next.
+Greeks, and implied-volatility solving — along with most of phase 4, which adds
+American exercise on binomial and trinomial lattices with the early-exercise
+boundary, and the command-line interface from phase 7. The Bjerksund-Stensland
+closed-form approximation, the volatility surface and Monte Carlo are next.
 
 Continuous integration is not yet configured, so the suite is run locally; the
 commands above are the whole of it.

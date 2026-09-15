@@ -1,8 +1,9 @@
 """Command-line access to the library.
 
-Four subcommands: ``price`` for a single option, ``greeks`` for its
-sensitivities, ``iv`` to invert a quoted price, and ``ladder`` for a table of
-strikes at one maturity.
+Five subcommands: ``price`` for a single option, ``greeks`` for its
+sensitivities, ``iv`` to invert a quoted price, ``ladder`` for a table of
+strikes at one maturity, and ``american`` for a lattice valuation with the
+right to exercise early.
 
 The carry is specified in whichever way suits the instrument — ``--carry``
 directly, ``--dividend`` for a share, ``--future`` for Black's model — rather
@@ -34,6 +35,7 @@ from .greeks import (
     zomma,
 )
 from .implied import Method, Quote, bounds, solve
+from .lattice import Exercise, Lattice, boundary, min_steps, price_lattice, richardson
 
 __all__ = ["main"]
 
@@ -158,6 +160,65 @@ def _run_ladder(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_american(args: argparse.Namespace) -> int:
+    inputs = _inputs_of(args)
+    option = _option_of(args)
+    lattice = Lattice(args.lattice)
+
+    floor = min_steps(inputs, lattice)
+    if args.steps < floor:
+        print(
+            f"error: {args.steps} layers is below the {floor} this lattice needs "
+            f"for the drift to stay inside the spread",
+            file=sys.stderr,
+        )
+        return 1
+
+    american = price_lattice(
+        inputs, option, steps=args.steps, lattice=lattice, smooth=not args.raw
+    )
+    european = price_lattice(
+        inputs,
+        option,
+        steps=args.steps,
+        lattice=lattice,
+        exercise=Exercise.EUROPEAN,
+        smooth=not args.raw,
+    )
+    extrapolated = richardson(
+        inputs, option, steps=args.steps, lattice=lattice, smooth=not args.raw
+    )
+
+    rows: list[tuple[str, str]] = [
+        ("lattice", lattice.value),
+        ("layers", str(args.steps)),
+        ("smoothing", "off" if args.raw else "on"),
+        ("american", f"{american.value:.10f}"),
+        ("european (lattice)", f"{european.value:.10f}"),
+        ("european (closed form)", f"{price(inputs, option):.10f}"),
+        ("early exercise premium", f"{american.early_exercise_premium:.10f}"),
+        ("american (extrapolated)", f"{extrapolated:.10f}"),
+    ]
+    width = max(len(name) for name, _ in rows)
+    for name, value in rows:
+        print(f"{name:>{width}}  {value}")
+
+    if args.boundary:
+        curve = boundary(inputs, option, steps=args.steps, lattice=lattice)
+        print()
+        if len(curve) <= 1:
+            print("the exercise region is empty: early exercise is never optimal here.")
+            return 0
+        print(f"{'time':>10} {'critical spot':>16}")
+        print("-" * 27)
+        shown = curve[:: max(len(curve) // args.boundary_rows, 1)]
+        if shown[-1] != curve[-1]:
+            shown.append(curve[-1])
+        for when, critical in shown:
+            print(f"{when:>10.6f} {critical:>16.6f}")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="moneyness", description="Option pricing, Greeks and implied volatility."
@@ -194,6 +255,35 @@ def _parser() -> argparse.ArgumentParser:
     ladder_parser.add_argument("--high", type=float, required=True, help="highest strike")
     ladder_parser.add_argument("--steps", type=int, default=9, help="number of strikes")
     ladder_parser.set_defaults(handler=_run_ladder)
+
+    american_parser = sub.add_parser(
+        "american", help="lattice valuation with the right to exercise early"
+    )
+    _add_market(american_parser)
+    american_parser.add_argument(
+        "--vol", type=float, required=True, help="annualised volatility"
+    )
+    american_parser.add_argument(
+        "--steps", type=int, default=512, help="number of lattice layers"
+    )
+    american_parser.add_argument(
+        "--lattice",
+        choices=[item.value for item in Lattice],
+        default=Lattice.CRR.value,
+        help="which lattice construction to build",
+    )
+    american_parser.add_argument(
+        "--raw",
+        action="store_true",
+        help="disable Broadie-Detemple smoothing, to see the unsmoothed lattice",
+    )
+    american_parser.add_argument(
+        "--boundary", action="store_true", help="also print the early-exercise boundary"
+    )
+    american_parser.add_argument(
+        "--boundary-rows", type=int, default=12, help="how many boundary rows to show"
+    )
+    american_parser.set_defaults(handler=_run_american)
 
     return parser
 
