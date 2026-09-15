@@ -4,6 +4,7 @@ The public surface is deliberately small: a value object describing the option
 and its market, and free functions over it.
 """
 
+from .american import bjerksund_stensland, trigger_price
 from .bsm import (
     Inputs,
     OptionType,
@@ -54,6 +55,7 @@ __all__ = [
     "OptionType",
     "Quote",
     "Solution",
+    "bjerksund_stensland",
     "boundary",
     "bounds",
     "charm",
@@ -81,6 +83,7 @@ __all__ = [
     "solve",
     "speed",
     "theta",
+    "trigger_price",
     "vanna",
     "vega",
     "veta",

@@ -13,9 +13,11 @@ than making the caller do the arithmetic.
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from collections.abc import Sequence
 
+from .american import bjerksund_stensland, trigger_price
 from .bsm import Inputs, OptionType, forward, parity_gap, price
 from .greeks import (
     charm,
@@ -160,6 +162,11 @@ def _run_ladder(args: argparse.Namespace) -> int:
     return 0
 
 
+def _format_trigger(level: float) -> str:
+    """An unreachable boundary is reported as such rather than as a number."""
+    return "never reached" if math.isinf(level) else f"{level:.10f}"
+
+
 def _run_american(args: argparse.Namespace) -> int:
     inputs = _inputs_of(args)
     option = _option_of(args)
@@ -198,6 +205,8 @@ def _run_american(args: argparse.Namespace) -> int:
         ("european (closed form)", f"{price(inputs, option):.10f}"),
         ("early exercise premium", f"{american.early_exercise_premium:.10f}"),
         ("american (extrapolated)", f"{extrapolated:.10f}"),
+        ("bjerksund-stensland", f"{bjerksund_stensland(inputs, option):.10f}"),
+        ("bs trigger price", _format_trigger(trigger_price(inputs, option))),
     ]
     width = max(len(name) for name, _ in rows)
     for name, value in rows:

@@ -208,3 +208,30 @@ def test_american_refuses_a_layer_count_below_the_stability_floor(
                  "--rate", "0.02", "--vol", "0.05", "--carry", "0.60", "--steps", "2"]) == 1
     err = capsys.readouterr().err
     assert "below the" in err and "layers" in err
+
+
+def test_american_reports_the_closed_form_alongside_the_lattice(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(_american_args("--put", "--steps", "200")) == 0
+    out = capsys.readouterr().out
+    values = {
+        line.rsplit("  ", 1)[0].strip(): line.rsplit("  ", 1)[1].strip()
+        for line in out.strip().splitlines()
+    }
+    approximation = float(values["bjerksund-stensland"])
+    american = float(values["american"])
+    european = float(values["european (closed form)"])
+    assert european - 1e-9 <= approximation <= american + 1e-3
+    assert float(values["bs trigger price"]) < 100.0
+
+
+def test_american_says_when_the_trigger_is_never_reached(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An infinite boundary must read as words, not as `inf`."""
+    assert main(["american", "--spot", "100", "--strike", "95", "--time", "0.5",
+                 "--rate", "0.04", "--vol", "0.22", "--steps", "150"]) == 0
+    out = capsys.readouterr().out
+    assert "never reached" in out
+    assert "inf" not in out
