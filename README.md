@@ -91,9 +91,11 @@ volatility, and prints the no-arbitrage range when a quote cannot be inverted.
 
 `american` prints the lattice value beside the European value *on the same
 lattice* and the European closed form, so the early-exercise premium and the
-discretisation error can be read as separate numbers rather than conflated.
-`--boundary` tabulates the early-exercise boundary, and says so plainly when the
-exercise region is empty.
+discretisation error can be read as separate numbers rather than conflated. It
+also prints the Bjerksund-Stensland closed-form approximation and its trigger
+price, which is a fast independent check on the lattice rather than a second
+opinion from the same machinery. `--boundary` tabulates the early-exercise
+boundary, and says so plainly when the exercise region is empty.
 
 ## A second decision: what the tolerances mean
 
@@ -149,6 +151,35 @@ Smoothing and extrapolation are each worth a factor of two on their own; togethe
 they are worth 30x to 150x. Both remain switchable, and the failure above is
 itself a test, so the default cannot quietly stop being the right one.
 
+## A fourth decision: bracket the approximation, do not just measure it
+
+The American price has no closed form, so there is nothing to check an American
+implementation against — which usually means settling for "the two methods agree
+to three decimals" and hoping that is enough.
+
+There is something better available here. The Bjerksund-Stensland formula is the
+exact value of a *flat-boundary* exercise strategy: exercise the moment the
+underlying first crosses a fixed level. That strategy is one the holder could
+really follow, just not the best one, so its value is a genuine lower bound on
+the American price and an upper bound on the European price:
+
+```
+European <= Bjerksund-Stensland <= American
+```
+
+The suite asserts that inequality on every row of its grid, for both option
+types, rather than only asserting closeness. It is the sharper statement: a
+tolerance says two numbers are near each other, while the bracket says which side
+of the lattice the approximation has to fall on, and an implementation that
+drifted above the lattice would fail it while still looking accurate to three
+decimals. A companion tolerance stops the bracket being satisfied the lazy way,
+by returning the European value and sitting at the bottom of the band.
+
+Puts are not implemented twice. They route through the call by the
+McDonald-Schroder transformation, `P(S, K, T, r, b, v) = C(K, S, T, r - b, -b, v)`,
+so there is one exercise rule in the codebase rather than two that can drift
+apart — and the transformation itself is asserted, not assumed.
+
 ## Running the tests
 
 ```bash
@@ -160,10 +191,12 @@ ruff check .           # lint
 ## Status
 
 Phases 1 to 3 of [the roadmap](ROADMAP.md) are in place — the pricing core, the
-Greeks, and implied-volatility solving — along with most of phase 4, which adds
+Greeks, and implied-volatility solving — along with phase 4, which adds
 American exercise on binomial and trinomial lattices with the early-exercise
-boundary, and the command-line interface from phase 7. The Bjerksund-Stensland
-closed-form approximation, the volatility surface and Monte Carlo are next.
+boundary and the Bjerksund-Stensland closed form, and the command-line interface
+from phase 7. The volatility surface and Monte Carlo are next, along with the
+2002 two-step refinement of the closed form, which needs a bivariate normal
+distribution function.
 
 Continuous integration is not yet configured, so the suite is run locally; the
 commands above are the whole of it.
