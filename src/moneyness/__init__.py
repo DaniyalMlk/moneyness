@@ -33,15 +33,28 @@ from .greeks import (
     zomma,
 )
 from .implied import Bounds, Method, Quote, Solution, bounds, implied_vol, solve
+from .lattice import (
+    Exercise,
+    Lattice,
+    LatticePrice,
+    boundary,
+    min_steps,
+    price_lattice,
+    richardson,
+)
 from .normal import norm_cdf, norm_pdf, norm_ppf
 
 __all__ = [
     "Bounds",
+    "Exercise",
     "Inputs",
+    "Lattice",
+    "LatticePrice",
     "Method",
     "OptionType",
     "Quote",
     "Solution",
+    "boundary",
     "bounds",
     "charm",
     "colour",
@@ -55,13 +68,16 @@ __all__ = [
     "implied_vol",
     "intrinsic",
     "log_moneyness",
+    "min_steps",
     "norm_cdf",
     "norm_pdf",
     "norm_ppf",
     "parity_gap",
     "price",
+    "price_lattice",
     "rho",
     "rho_carry",
+    "richardson",
     "solve",
     "speed",
     "theta",
