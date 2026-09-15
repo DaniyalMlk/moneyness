@@ -38,11 +38,12 @@ an independent method that should agree to a stated tolerance.
 
 ## Phase 4 — American exercise
 
-- [ ] Cox-Ross-Rubinstein and Jarrow-Rudd binomial lattices
-- [ ] Trinomial lattice, and the stability condition on the layer count
-- [ ] Early-exercise boundary extracted from the lattice
-- [ ] Richardson extrapolation over the layer count
-- [ ] Convergence to the closed form for the European case
+- [x] Cox-Ross-Rubinstein and Jarrow-Rudd binomial lattices
+- [x] Trinomial lattice, and the stability condition on the layer count
+- [x] Early-exercise boundary extracted from the lattice
+- [x] Richardson extrapolation over the layer count
+- [x] Broadie-Detemple smoothing, without which the extrapolation makes the answer worse
+- [x] Convergence to the closed form for the European case
 - [ ] Bjerksund-Stensland closed-form approximation as an independent check
 
 ## Phase 5 — Volatility surface
@@ -66,6 +67,7 @@ an independent method that should agree to a stated tolerance.
 
 - [x] Command-line pricing, Greeks and implied-volatility entry points
 - [x] Table output for a strike ladder
+- [x] Command-line American valuation, with the exercise boundary
 - [ ] Table output across maturities
 - [ ] Surface fitting and arbitrage reporting from the command line
 - [ ] Continuous integration for the test suite and the type checker
