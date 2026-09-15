@@ -134,3 +134,77 @@ def test_a_single_strike_ladder_does_not_divide_by_zero(
     lines = capsys.readouterr().out.strip().splitlines()
     assert len(lines) == 3
     assert not any(math.isnan(float(f)) for f in lines[2].split())
+
+
+def _american_args(*extra: str) -> list[str]:
+    return [
+        "american", "--spot", "100", "--strike", "100", "--time", "1",
+        "--rate", "0.06", "--vol", "0.25", "--dividend", "0.06", *extra,
+    ]
+
+
+def test_american_reports_a_premium_over_the_european_value(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(_american_args("--put", "--steps", "200")) == 0
+    out = capsys.readouterr().out
+    values = {
+        line.rsplit("  ", 1)[0].strip(): line.rsplit("  ", 1)[1].strip()
+        for line in out.strip().splitlines()
+    }
+    american = float(values["american"])
+    european = float(values["european (lattice)"])
+    premium = float(values["early exercise premium"])
+    assert american > european
+    assert premium == pytest.approx(american - european, abs=1e-12)
+
+
+def test_american_call_without_dividends_shows_no_premium(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The wiring must carry the carry through, or this silently shows a premium."""
+    assert main(["american", "--spot", "100", "--strike", "95", "--time", "0.5",
+                 "--rate", "0.04", "--vol", "0.22", "--steps", "150"]) == 0
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines() if "early exercise premium" in ln)
+    assert float(line.split()[-1]) == 0.0
+
+
+def test_american_accepts_every_lattice(capsys: pytest.CaptureFixture[str]) -> None:
+    prices = []
+    for name in ("crr", "jarrow-rudd", "trinomial"):
+        assert main(_american_args("--put", "--steps", "200", "--lattice", name)) == 0
+        out = capsys.readouterr().out
+        assert name in out
+        line = next(ln for ln in out.splitlines() if ln.strip().startswith("american  "))
+        prices.append(float(line.split()[-1]))
+    assert max(prices) - min(prices) < 5e-3
+
+
+def test_american_boundary_table_rises_towards_the_strike(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(_american_args("--put", "--steps", "200", "--boundary")) == 0
+    out = capsys.readouterr().out
+    body = out.split("critical spot")[1].strip().splitlines()[1:]
+    levels = [float(line.split()[1]) for line in body if line.strip()]
+    assert len(levels) > 3
+    assert levels[-1] == pytest.approx(100.0)
+    assert levels[0] < levels[-1]
+
+
+def test_american_boundary_says_so_when_the_region_is_empty(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["american", "--spot", "100", "--strike", "95", "--time", "0.5",
+                 "--rate", "0.04", "--vol", "0.22", "--steps", "150", "--boundary"]) == 0
+    assert "exercise region is empty" in capsys.readouterr().out
+
+
+def test_american_refuses_a_layer_count_below_the_stability_floor(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(["american", "--spot", "100", "--strike", "100", "--time", "5",
+                 "--rate", "0.02", "--vol", "0.05", "--carry", "0.60", "--steps", "2"]) == 1
+    err = capsys.readouterr().err
+    assert "below the" in err and "layers" in err
