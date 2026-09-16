@@ -61,11 +61,11 @@ an independent method that should agree to a stated tolerance.
 
 ## Phase 6 — Monte Carlo
 
-- [ ] Geometric Brownian motion, exact on the terminal law and on a path
-- [ ] Antithetic variates and a control variate from the closed form
-- [ ] Standard error reported with every estimate, and the confidence interval
-- [ ] Asian and barrier payoffs, including the Brownian-bridge barrier correction
-- [ ] Convergence to the closed form at the stated rate
+- [x] Geometric Brownian motion, exact on the terminal law and on a path
+- [x] Antithetic variates and a control variate from the closed form
+- [x] Standard error reported with every estimate, and the confidence interval
+- [x] Asian and barrier payoffs, including the Brownian-bridge barrier correction
+- [x] Convergence to the closed form at the stated rate
 
 ## Phase 7 — Interface
 

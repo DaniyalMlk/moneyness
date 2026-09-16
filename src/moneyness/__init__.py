@@ -43,15 +43,18 @@ from .lattice import (
     price_lattice,
     richardson,
 )
+from .monte_carlo import Barrier, Estimate, Settings, asian, barrier, european, geometric_asian
 from .normal import norm_cdf, norm_pdf, norm_ppf
 from .surface import Calendar, LocalVol, Surface
 from .svi import SVI, Butterfly, Fit, calibrate, density, durrleman
 
 __all__ = [
     "SVI",
+    "Barrier",
     "Bounds",
     "Butterfly",
     "Calendar",
+    "Estimate",
     "Exercise",
     "Fit",
     "Inputs",
@@ -61,8 +64,11 @@ __all__ = [
     "Method",
     "OptionType",
     "Quote",
+    "Settings",
     "Solution",
     "Surface",
+    "asian",
+    "barrier",
     "bjerksund_stensland",
     "boundary",
     "bounds",
@@ -75,9 +81,11 @@ __all__ = [
     "dual_delta",
     "dual_gamma",
     "durrleman",
+    "european",
     "forward",
     "forward_delta",
     "gamma",
+    "geometric_asian",
     "implied_vol",
     "intrinsic",
     "log_moneyness",
