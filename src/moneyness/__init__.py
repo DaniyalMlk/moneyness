@@ -44,26 +44,37 @@ from .lattice import (
     richardson,
 )
 from .normal import norm_cdf, norm_pdf, norm_ppf
+from .surface import Calendar, LocalVol, Surface
+from .svi import SVI, Butterfly, Fit, calibrate, density, durrleman
 
 __all__ = [
+    "SVI",
     "Bounds",
+    "Butterfly",
+    "Calendar",
     "Exercise",
+    "Fit",
     "Inputs",
     "Lattice",
     "LatticePrice",
+    "LocalVol",
     "Method",
     "OptionType",
     "Quote",
     "Solution",
+    "Surface",
     "bjerksund_stensland",
     "boundary",
     "bounds",
+    "calibrate",
     "charm",
     "colour",
     "d1_d2",
     "delta",
+    "density",
     "dual_delta",
     "dual_gamma",
+    "durrleman",
     "forward",
     "forward_delta",
     "gamma",

@@ -49,12 +49,15 @@ an independent method that should agree to a stated tolerance.
 
 ## Phase 5 — Volatility surface
 
-- [ ] Total implied variance in log-moneyness coordinates
-- [ ] Raw SVI slice, and its calibration to a set of quotes
-- [ ] Butterfly arbitrage: the Durrleman condition on a slice
-- [ ] Calendar arbitrage: monotone total variance across maturities
-- [ ] Interpolation in maturity that preserves both conditions
-- [ ] Local volatility from the surface, by the Dupire identity
+- [x] Total implied variance in log-moneyness coordinates
+- [x] Raw SVI slice, and its calibration to a set of quotes
+- [x] Butterfly arbitrage: the Durrleman condition on a slice
+- [x] Calendar arbitrage: monotone total variance across maturities
+- [x] Interpolation in maturity that preserves the calendar condition by
+      construction, and is checked against the butterfly condition rather than
+      assumed to preserve it — a randomised search for a counterexample came up
+      empty, which is evidence and not a proof
+- [x] Local volatility from the surface, by the Dupire identity
 
 ## Phase 6 — Monte Carlo
 
