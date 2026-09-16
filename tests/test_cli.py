@@ -8,7 +8,9 @@ error that escapes as a traceback instead of an exit status.
 
 from __future__ import annotations
 
+import io
 import math
+import pathlib
 
 import pytest
 
@@ -308,3 +310,241 @@ def test_term_accepts_a_single_maturity(capsys: pytest.CaptureFixture[str]) -> N
 def test_term_rejects_a_nonsensical_range(extra: list[str]) -> None:
     with pytest.raises(SystemExit):
         main(["term", "--spot", "100", "--strike", "100", "--vol", "0.2", *extra])
+
+
+# ---------------------------------------------------------------------------
+# surface: fit a whole surface and report the arbitrage it admits
+# ---------------------------------------------------------------------------
+
+
+def _quote_file(
+    path: pathlib.Path,
+    slices: dict[float, tuple[float, float, float, float, float]],
+    *,
+    spot: float = 100.0,
+    rate: float = 0.05,
+    header: bool = True,
+) -> pathlib.Path:
+    """Write quotes generated from known SVI slices.
+
+    Generating the quotes from slices whose parameters are known turns the
+    whole command into a round trip: strike and volatility go in, the CLI
+    converts to log-moneyness and total variance, fits, and the parameters that
+    come back out must be the ones that went in. That checks the coordinate
+    conversion inside the command, which no unit test of the fit can reach.
+    """
+    lines = ["maturity,strike,vol"] if header else []
+    for time, (a, b, rho, m, s) in slices.items():
+        forward_price = spot * math.exp(rate * time)
+        for strike in (70.0, 80.0, 90.0, 95.0, 100.0, 105.0, 110.0, 120.0, 140.0):
+            y = math.log(strike / forward_price) - m
+            total = a + b * (rho * y + math.hypot(y, s))
+            lines.append(f"{time},{strike},{math.sqrt(total / time):.12f}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _local_vol_grid(out: str) -> tuple[list[float], list[list[str]]]:
+    """Pull the column maturities and the data rows out of the local-vol table."""
+    body = out.split("local volatility by the Dupire identity")[1].strip().splitlines()
+    columns = [float(field) for field in body[0].split()[1:]]
+    rows = []
+    for line in body[2:]:
+        fields = line.split()
+        if not fields or not fields[0].lstrip("-").replace(".", "", 1).isdigit():
+            break  # the table has ended and the verdict has begun
+        rows.append(fields)
+    return columns, rows
+
+
+ORDERED_SLICES = {
+    0.25: (0.020, 0.15, -0.35, 0.0, 0.12),
+    1.00: (0.050, 0.22, -0.30, 0.0, 0.18),
+    2.00: (0.100, 0.30, -0.25, 0.0, 0.25),
+}
+
+# The same slices with their maturities swapped, so total variance falls as
+# maturity grows: a calendar arbitrage, and a certain profit.
+CROSSED_SLICES = {
+    0.50: (0.050, 0.22, -0.30, 0.0, 0.18),
+    1.50: (0.020, 0.15, -0.35, 0.0, 0.12),
+}
+
+
+def test_surface_recovers_the_parameters_the_quotes_were_built_from(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The end-to-end round trip, and the sharpest check on the command.
+
+    The quotes are volatilities against strikes; the command converts them to
+    total variance against log-moneyness on the forward and fits. If the
+    conversion were wrong in any way -- the wrong forward, a missing maturity
+    scaling, a sign -- the fit would still succeed and the recovered parameters
+    would be wrong. They come back to eight decimals.
+    """
+    path = _quote_file(tmp_path / "quotes.csv", ORDERED_SLICES)
+    assert main(["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05"]) == 0
+
+    out = capsys.readouterr().out
+    rows = [
+        line.split()
+        for line in out.splitlines()
+        if line.startswith(("   0.2", "   1.0", "   2.0"))
+    ]
+    assert len(rows) == 3
+    for row, (time, (a, b, rho, _m, s)) in zip(rows, sorted(ORDERED_SLICES.items()), strict=True):
+        assert float(row[0]) == pytest.approx(time)
+        assert float(row[4]) == pytest.approx(a, abs=1e-5)
+        assert float(row[5]) == pytest.approx(b, abs=1e-5)
+        assert float(row[6]) == pytest.approx(rho, abs=1e-5)
+        assert float(row[8]) == pytest.approx(s, abs=1e-5)
+
+
+def test_surface_reports_no_arbitrage_on_an_ordered_surface(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _quote_file(tmp_path / "quotes.csv", ORDERED_SLICES)
+    assert main(["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05"]) == 0
+    out = capsys.readouterr().out
+    assert "verdict: no arbitrage found" in out
+    assert "CROSSES" not in out
+    assert "ARBITRAGE" not in out
+
+
+def test_surface_exits_non_zero_on_a_calendar_crossing(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A finding about the data, reported in the exit status so a pipeline can act."""
+    path = _quote_file(tmp_path / "crossed.csv", CROSSED_SLICES)
+    assert main(["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05"]) == 1
+    out = capsys.readouterr().out
+    assert "CROSSES" in out
+    assert "verdict: the fitted surface admits arbitrage" in out
+
+
+def test_surface_checks_interpolated_maturities_as_well_as_quoted_ones(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _quote_file(tmp_path / "quotes.csv", ORDERED_SLICES)
+    assert main(["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05"]) == 0
+    out = capsys.readouterr().out
+    assert "interpolated" in out
+    assert out.count("quoted") == 3
+
+
+def test_surface_reads_standard_input(
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _quote_file(tmp_path / "quotes.csv", ORDERED_SLICES)
+    monkeypatch.setattr("sys.stdin", io.StringIO(path.read_text(encoding="utf-8")))
+    assert main(["surface", "--quotes", "-", "--spot", "100", "--rate", "0.05"]) == 0
+    assert "verdict: no arbitrage found" in capsys.readouterr().out
+
+
+def test_surface_accepts_a_file_without_a_header(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The header is optional and detected by trying to parse it, not by its spelling."""
+    path = _quote_file(tmp_path / "bare.csv", ORDERED_SLICES, header=False)
+    assert main(["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05"]) == 0
+    out = capsys.readouterr().out
+    assert out.count("quoted") == 3
+
+
+def test_surface_prints_a_local_volatility_grid(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _quote_file(tmp_path / "quotes.csv", ORDERED_SLICES)
+    assert main(
+        ["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05", "--local-vol"]
+    ) == 0
+    out = capsys.readouterr().out
+    assert "local volatility by the Dupire identity" in out
+    _, rows = _local_vol_grid(out)
+    for row in rows:
+        for cell in row[1:]:
+            # An inadmissible cell prints as "--"; every cell here has an answer.
+            assert float(cell) > 0.0
+
+
+def test_the_local_volatility_grid_stays_inside_the_quoted_maturities(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression: the grid used to include the endpoints and print zeros there.
+
+    At a quoted endpoint the surface is flat in maturity by construction, so
+    ``dw/dT`` is zero and the identity returns a local volatility of zero. That
+    is a property of the extrapolation rule and not of the market, and printing
+    it under a column headed by a real maturity invited it to be read as one.
+    """
+    path = _quote_file(tmp_path / "quotes.csv", ORDERED_SLICES)
+    assert main(
+        ["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05", "--local-vol"]
+    ) == 0
+    columns, rows = _local_vol_grid(capsys.readouterr().out)
+    assert all(0.25 < time < 2.0 for time in columns), columns
+    for row in rows:
+        for cell in row[1:]:
+            assert float(cell) > 0.01
+
+
+@pytest.mark.parametrize(
+    ("contents", "match"),
+    [
+        ("0.5,100\n0.5,110\n", "expected maturity, strike and vol"),
+        ("0.5,100,0.2\nnot,a,number\n", "are not three numbers"),
+        ("0.5,100,0.2\n-1,100,0.2\n", "maturity -1.0 is not positive"),
+        ("0.5,100,0.2\n0.5,0,0.2\n", "strike 0.0 is not positive"),
+        ("0.5,100,0.2\n0.5,100,-0.2\n", "volatility -0.2 is not positive"),
+        ("\n\n", "no quotes found"),
+    ],
+)
+def test_surface_rejects_a_malformed_file(
+    tmp_path: pathlib.Path, contents: str, match: str
+) -> None:
+    """Every diagnostic names the row, because "one of them is wrong" is not usable."""
+    path = tmp_path / "bad.csv"
+    path.write_text(contents, encoding="utf-8")
+    with pytest.raises(SystemExit, match=match):
+        main(["surface", "--quotes", str(path), "--spot", "100"])
+
+
+def test_surface_reports_a_missing_file_rather_than_raising(tmp_path: pathlib.Path) -> None:
+    with pytest.raises(SystemExit, match="cannot read"):
+        main(["surface", "--quotes", str(tmp_path / "absent.csv"), "--spot", "100"])
+
+
+def test_surface_needs_five_quotes_at_each_maturity(tmp_path: pathlib.Path) -> None:
+    path = tmp_path / "thin.csv"
+    path.write_text(
+        "maturity,strike,vol\n" + "".join(f"1.0,{k},0.2\n" for k in (90, 95, 100, 105)),
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="needs at least five"):
+        main(["surface", "--quotes", str(path), "--spot", "100"])
+
+
+def test_surface_handles_a_single_maturity(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One slice cannot cross another, and gives no slope in maturity to differentiate."""
+    path = _quote_file(tmp_path / "one.csv", {1.0: ORDERED_SLICES[1.00]})
+    assert main(
+        ["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05", "--local-vol"]
+    ) == 0
+    out = capsys.readouterr().out
+    assert "a single maturity cannot cross another" in out
+    assert "dw/dT is zero" in out
+    assert "verdict: no arbitrage found" in out
+
+
+def test_surface_ignores_comment_lines(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _quote_file(tmp_path / "quotes.csv", ORDERED_SLICES)
+    body = path.read_text(encoding="utf-8")
+    path.write_text("# a note about where these came from\n" + body, encoding="utf-8")
+    assert main(["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05"]) == 0
+    assert "verdict: no arbitrage found" in capsys.readouterr().out
