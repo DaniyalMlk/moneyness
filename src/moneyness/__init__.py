@@ -4,7 +4,8 @@ The public surface is deliberately small: a value object describing the option
 and its market, and free functions over it.
 """
 
-from .american import bjerksund_stensland, trigger_price
+from .american import bjerksund_stensland, bjerksund_stensland_2002, trigger_price
+from .bivariate import norm_cdf2
 from .bsm import (
     Inputs,
     OptionType,
@@ -70,6 +71,7 @@ __all__ = [
     "asian",
     "barrier",
     "bjerksund_stensland",
+    "bjerksund_stensland_2002",
     "boundary",
     "bounds",
     "calibrate",
@@ -91,6 +93,7 @@ __all__ = [
     "log_moneyness",
     "min_steps",
     "norm_cdf",
+    "norm_cdf2",
     "norm_pdf",
     "norm_ppf",
     "parity_gap",

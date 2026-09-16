@@ -23,6 +23,15 @@ from .reference import ref_norm_cdf2
 ARGUMENTS = [-8.0, -3.0, -1.5, -0.5, 0.0, 0.5, 1.5, 3.0, 8.0]
 CORRELATIONS = [-0.9999, -0.99, -0.9, -0.5, -0.1, 0.1, 0.5, 0.9, 0.99, 0.9999]
 
+# The high-precision comparison uses a thinner set of arguments than the
+# identity checks. Those are pure floating point and cost nothing, so they run
+# on the full grid; each point of this one is a fifty-digit adaptive quadrature,
+# and the full grid spends two minutes to re-establish across eighty-one
+# argument pairs what twenty-five already establish. The correlations are *not*
+# thinned, because that is the axis the implementation actually varies over --
+# the arguments only enter the integrand as constants.
+REFERENCE_ARGUMENTS = [-8.0, -1.5, 0.0, 1.5, 8.0]
+
 
 class TestQuadratureRule:
     """The nodes are computed, so the computation has to be checked.
@@ -160,7 +169,7 @@ class TestAgainstHighPrecision:
         lesson is in ``reference.py``, where the transition is now named.
         """
         worst = 0.0
-        for a, b in itertools.product(ARGUMENTS, ARGUMENTS):
+        for a, b in itertools.product(REFERENCE_ARGUMENTS, REFERENCE_ARGUMENTS):
             worst = max(worst, abs(norm_cdf2(a, b, rho) - ref_norm_cdf2(a, b, rho)))
         assert worst < 1e-14, f"worst absolute error {worst:.3e} at rho={rho}"
 
