@@ -221,10 +221,18 @@ def test_american_reports_the_closed_form_alongside_the_lattice(
         line.rsplit("  ", 1)[0].strip(): line.rsplit("  ", 1)[1].strip()
         for line in out.strip().splitlines()
     }
-    approximation = float(values["bjerksund-stensland"])
+    single = float(values["bjerksund-stensland 1993"])
+    double = float(values["bjerksund-stensland 2002"])
     american = float(values["american"])
     european = float(values["european (closed form)"])
-    assert european - 1e-9 <= approximation <= american + 1e-3
+
+    # Both approximations sit inside the bracket, and the two-step one is at
+    # least as sharp -- the same inequalities the library guarantees, checked
+    # through the printed output so that a formatting change cannot quietly
+    # start reporting one number under the other's label.
+    assert european - 1e-9 <= single <= american + 1e-3
+    assert european - 1e-9 <= double <= american + 1e-3
+    assert double >= single - 1e-9
     assert float(values["bs trigger price"]) < 100.0
 
 

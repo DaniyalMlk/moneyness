@@ -45,7 +45,7 @@ an independent method that should agree to a stated tolerance.
 - [x] Broadie-Detemple smoothing, without which the extrapolation makes the answer worse
 - [x] Convergence to the closed form for the European case
 - [x] Bjerksund-Stensland closed-form approximation as an independent check
-- [ ] The 2002 two-step boundary, which needs a bivariate normal distribution function
+- [x] The 2002 two-step boundary, on a bivariate normal distribution function built for it
 
 ## Phase 5 — Volatility surface
 
