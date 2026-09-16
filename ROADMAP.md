@@ -72,7 +72,7 @@ an independent method that should agree to a stated tolerance.
 - [x] Command-line pricing, Greeks and implied-volatility entry points
 - [x] Table output for a strike ladder
 - [x] Command-line American valuation, with the exercise boundary
-- [ ] Table output across maturities
-- [ ] Surface fitting and arbitrage reporting from the command line
+- [x] Table output across maturities
+- [x] Surface fitting and arbitrage reporting from the command line
 - [x] Continuous integration for the test suite and the type checker, across every
       supported interpreter, with the built wheel's entry point exercised
