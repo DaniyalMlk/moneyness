@@ -1,0 +1,117 @@
+name: checks
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+# A push that lands while an earlier run on the same ref is still going makes
+# that earlier run irrelevant, so cancel it rather than paying for both.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The test suite runs on every interpreter the package claims to support in
+  # requires-python. The numerics are the reason this matters: the library is
+  # pure Python with no dependencies, so a version difference shows up as a
+  # difference in math and float behaviour rather than in a dependency
+  # resolution, and that is exactly the kind of thing a single-version matrix
+  # would miss.
+  tests:
+    name: tests (python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Test
+        run: python -m pytest -v
+
+  # The type checker and the linter are single-version jobs. Both are pinned to
+  # one interpreter in the configuration, and running them four times would
+  # report the same result four times.
+  types:
+    name: types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: mypy
+        run: python -m mypy --strict
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ruff
+
+      # The linter runs; the formatter deliberately does not. Much of the test
+      # data is grids of numbers laid out as tables, one row of related inputs
+      # per line, because that is how the cases are read and checked against
+      # their sources. `ruff format` explodes those to one value per line, which
+      # is correct for code and wrong for a table. The lint rules cover the
+      # things that actually matter here.
+      - name: ruff check
+        run: ruff check --output-format=github .
+
+  # The package declares a console entry point, which is a class of breakage
+  # that only appears at install time: the source tree can be perfectly healthy
+  # while the built wheel installs a script that fails to import. Building the
+  # wheel, installing it somewhere with no source tree in sight, and running the
+  # command is the only check that covers it.
+  package:
+    name: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Install the wheel and run the entry point
+        run: |
+          cd "$(mktemp -d)"
+          python -m venv venv
+          ./venv/bin/pip install "$GITHUB_WORKSPACE"/dist/*.whl
+          ./venv/bin/moneyness price --spot 100 --strike 100 --time 1 --rate 0.05 --vol 0.2
