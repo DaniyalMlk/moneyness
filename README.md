@@ -180,6 +180,64 @@ McDonald-Schroder transformation, `P(S, K, T, r, b, v) = C(K, S, T, r - b, -b, v
 so there is one exercise rule in the codebase rather than two that can drift
 apart — and the transformation itself is asserted, not assumed.
 
+## A fifth decision: let the arbitrage conditions do the work
+
+A volatility surface has to satisfy two conditions to describe a possible
+market. Each slice must imply a non-negative probability density — no butterfly
+arbitrage — and total variance must not fall as maturity grows at fixed
+log-moneyness, or one could buy the longer option, sell the shorter, and collect
+a certain profit.
+
+It is tempting to treat these as validation: fit the surface, then check it.
+They turn out to be more useful than that, because of what Dupire's identity
+looks like in these coordinates:
+
+```
+sigma_local^2(k, T) = (dw/dT) / g(k, T)
+```
+
+where `w` is total variance and `g` is the Durrleman function — the same `g`
+whose sign *is* the butterfly condition. The numerator is non-negative exactly
+when there is no calendar arbitrage. The denominator is positive exactly when
+there is no butterfly arbitrage. So a local volatility exists, as a real
+non-negative number, if and only if the surface admits neither.
+
+The two conditions are not hygiene. They are precisely the conditions under
+which "what volatility would reproduce these prices" has an answer at all. So
+`local_vol` returns the numerator and the denominator alongside the result,
+because when the answer is unusable the caller needs to know which one failed:
+a negative numerator is slices crossing, which is a data problem, and a
+non-positive denominator is a density defect inside one slice, which is a
+fitting problem. They have different fixes.
+
+The choice of interpolation follows from the same thinking. Linear in total
+variance at fixed log-moneyness makes the calendar condition automatic — a
+linear function between two ordered endpoints is monotone, so non-crossing
+slices cannot interpolate to crossing ones. The butterfly condition gets no such
+argument, since `g` is nonlinear in `w`. A randomised search over tens of
+thousands of admissible, non-crossing pairs failed to find an interpolated
+violation, which is suggestive and is not a proof, so the surface recomputes `g`
+on interpolated slices rather than assuming it, and checks the midpoints of the
+gaps by default.
+
+Calibration exploits the shape of SVI rather than throwing five parameters at an
+optimiser. Substituting `y = (k - m) / s` makes the parametrisation *linear* in
+the three remaining coefficients, so the fit is a three-variable least squares
+solved in closed form inside a two-variable search. The constraint that keeps a
+slice non-negative everywhere turns out to be a second-order cone, which is
+projected onto exactly rather than clamped coordinate by coordinate.
+
+```python
+from moneyness import Surface, calibrate
+
+fit = calibrate(log_moneyness, total_variances)
+fit.rmse, fit.slice_.wing_slopes
+
+surface = Surface([(0.25, near), (1.0, mid), (2.0, far)])
+[entry.free for entry in surface.calendar()]      # no slices crossing
+surface.local_vol(k=-0.2, time=0.8).volatility
+```
+
 ## Running the tests
 
 ```bash
@@ -203,9 +261,12 @@ and nothing short of installing it will say so.
 ## Status
 
 Phases 1 to 3 of [the roadmap](ROADMAP.md) are in place — the pricing core, the
-Greeks, and implied-volatility solving — along with phase 4, which adds
-American exercise on binomial and trinomial lattices with the early-exercise
-boundary and the Bjerksund-Stensland closed form, and the command-line interface
-from phase 7. The volatility surface and Monte Carlo are next, along with the
+Greeks, and implied-volatility solving — along with phase 4, which adds American
+exercise on binomial and trinomial lattices with the early-exercise boundary and
+the Bjerksund-Stensland closed form, and phase 5, the volatility surface: SVI
+slices and their calibration, both arbitrage conditions, and Dupire local
+volatility. Most of the command-line interface from phase 7 is there too.
+
+Monte Carlo is next, along with surface reporting from the command line and the
 2002 two-step refinement of the closed form, which needs a bivariate normal
 distribution function.
