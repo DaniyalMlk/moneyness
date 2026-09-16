@@ -19,7 +19,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from .american import bjerksund_stensland, trigger_price
+from .american import bjerksund_stensland, bjerksund_stensland_2002, trigger_price
 from .bsm import Inputs, OptionType, forward, parity_gap, price
 from .greeks import (
     charm,
@@ -428,7 +428,8 @@ def _run_american(args: argparse.Namespace) -> int:
         ("european (closed form)", f"{price(inputs, option):.10f}"),
         ("early exercise premium", f"{american.early_exercise_premium:.10f}"),
         ("american (extrapolated)", f"{extrapolated:.10f}"),
-        ("bjerksund-stensland", f"{bjerksund_stensland(inputs, option):.10f}"),
+        ("bjerksund-stensland 1993", f"{bjerksund_stensland(inputs, option):.10f}"),
+        ("bjerksund-stensland 2002", f"{bjerksund_stensland_2002(inputs, option):.10f}"),
         ("bs trigger price", _format_trigger(trigger_price(inputs, option))),
     ]
     width = max(len(name) for name, _ in rows)

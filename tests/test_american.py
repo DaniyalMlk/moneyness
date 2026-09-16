@@ -27,7 +27,13 @@ from itertools import pairwise
 import pytest
 
 from moneyness import Inputs, OptionType, price
-from moneyness.american import bjerksund_stensland, trigger_price
+from moneyness.american import (
+    _two_step_triggers,
+    _two_step_value,
+    bjerksund_stensland,
+    bjerksund_stensland_2002,
+    trigger_price,
+)
 from moneyness.lattice import Lattice, richardson
 
 # Spot, strike, time, rate, carry, vol. Every row has a carry below the rate for
@@ -265,3 +271,164 @@ class TestAgainstTheLattice:
             american = lattice_value(option_inputs, option)
             assert approximation <= american + 1e-5
             assert approximation == pytest.approx(american, rel=0.03, abs=1e-4)
+
+
+class TestTwoStepBoundary:
+    """The 2002 refinement, and the safeguard that makes its guarantee hold."""
+
+    @pytest.mark.parametrize("row", GRID)
+    @pytest.mark.parametrize("option", list(OptionType))
+    def test_the_bracket_still_holds(
+        self, row: tuple[float, float, float, float, float, float], option: OptionType
+    ) -> None:
+        """European <= 2002 <= American, the inequality the whole module rests on."""
+        option_inputs = inputs_of(row)
+        european = price(option_inputs, option)
+        approximate = bjerksund_stensland_2002(option_inputs, option)
+        american = lattice_value(option_inputs, option)
+
+        assert approximate >= european - 1e-12
+        assert approximate <= american + 1e-6
+
+    @pytest.mark.parametrize("row", GRID)
+    @pytest.mark.parametrize("option", list(OptionType))
+    def test_is_never_worse_than_the_single_boundary(
+        self, row: tuple[float, float, float, float, float, float], option: OptionType
+    ) -> None:
+        """Guaranteed by the maximum, not by the two-step formula on its own."""
+        option_inputs = inputs_of(row)
+        assert bjerksund_stensland_2002(option_inputs, option) >= bjerksund_stensland(
+            option_inputs, option
+        ) - 1e-12
+
+    @pytest.mark.parametrize("row", GRID)
+    @pytest.mark.parametrize("option", list(OptionType))
+    def test_is_at_least_as_accurate_as_the_single_boundary(
+        self, row: tuple[float, float, float, float, float, float], option: OptionType
+    ) -> None:
+        """Both are lower bounds, so being larger is the same as being closer.
+
+        Worth stating as accuracy anyway, since that is the claim a reader of
+        the module cares about, and it is the one that would fail first if the
+        two-step algebra were wrong.
+        """
+        option_inputs = inputs_of(row)
+        american = lattice_value(option_inputs, option)
+        single = abs(bjerksund_stensland(option_inputs, option) - american)
+        double = abs(bjerksund_stensland_2002(option_inputs, option) - american)
+        assert double <= single + 1e-12
+
+    def test_the_improvement_over_the_single_boundary_is_measured(self) -> None:
+        """The number written in the docstring, asserted rather than asserted-to.
+
+        A refinement that is merely never worse is not worth the bivariate
+        normal it costs. This pins the size of the gain, so that a change which
+        quietly reduced the 2002 value to the 1993 one everywhere -- the most
+        likely way for this to rot -- would fail here rather than pass every
+        inequality above.
+        """
+        single_total = 0.0
+        double_total = 0.0
+        for row in GRID:
+            for option in OptionType:
+                option_inputs = inputs_of(row)
+                american = lattice_value(option_inputs, option)
+                single_total += abs(bjerksund_stensland(option_inputs, option) - american)
+                double_total += abs(bjerksund_stensland_2002(option_inputs, option) - american)
+
+        assert double_total < single_total / 1.2, (
+            f"mean error {single_total:.6f} -> {double_total:.6f}, "
+            "less improvement than the module claims"
+        )
+
+    def test_the_safeguard_binds_somewhere(self) -> None:
+        """The maximum is not decoration, and this is the market that proves it.
+
+        Found by a random sweep: high volatility over a long maturity with a
+        carry close to the rate. Here the raw two-step formula falls *below*
+        the European price, which no American value may do since holding to
+        expiry is always available. If a future change made the raw formula
+        well behaved everywhere, this test failing is the right way to find out.
+        """
+        option_inputs = Inputs(91.98, 90.95, 2.766, 0.0272, 0.572, carry=0.0165)
+        european = price(option_inputs, OptionType.CALL)
+        raw = _two_step_value(option_inputs, OptionType.CALL)
+        guarded = bjerksund_stensland_2002(option_inputs, OptionType.CALL)
+
+        assert raw < european, "this market is chosen because the raw formula misbehaves"
+        assert guarded >= european
+        assert guarded == pytest.approx(
+            max(european, bjerksund_stensland(option_inputs, OptionType.CALL))
+        )
+
+    @pytest.mark.parametrize("row", GRID)
+    def test_the_put_transformation_agrees_with_the_call(
+        self, row: tuple[float, float, float, float, float, float]
+    ) -> None:
+        """A put priced directly must equal its mirrored call, as for the 1993 form."""
+        option_inputs = inputs_of(row)
+        mirrored = Inputs(
+            option_inputs.strike,
+            option_inputs.spot,
+            option_inputs.time,
+            option_inputs.rate - option_inputs.b,
+            option_inputs.vol,
+            carry=-option_inputs.b,
+        )
+        assert bjerksund_stensland_2002(option_inputs, OptionType.PUT) == pytest.approx(
+            bjerksund_stensland_2002(mirrored, OptionType.CALL), rel=1e-12
+        )
+
+    @pytest.mark.parametrize("row", GRID)
+    def test_a_call_with_no_exercise_region_is_exactly_european(
+        self, row: tuple[float, float, float, float, float, float]
+    ) -> None:
+        """With the carry at or above the rate, waiting never costs anything.
+
+        Stated for the call only, and deliberately so. The put's mirror of this
+        case is a carry at or below zero, which is not the same condition, and
+        writing one parametrised test over both option types would leave the
+        put branch asserting nothing.
+        """
+        spot, strike, time, rate, _carry, vol = row
+        option_inputs = Inputs(spot, strike, time, rate, vol, carry=rate)
+        assert bjerksund_stensland_2002(option_inputs, OptionType.CALL) == pytest.approx(
+            price(option_inputs, OptionType.CALL), rel=1e-12
+        )
+
+    @pytest.mark.parametrize("row", GRID)
+    def test_a_put_with_no_exercise_region_is_exactly_european(
+        self, row: tuple[float, float, float, float, float, float]
+    ) -> None:
+        """The mirror condition: under the transformation the put's call has
+        carry equal to its rate when the put's own rate is zero."""
+        spot, strike, time, _rate, _carry, vol = row
+        option_inputs = Inputs(spot, strike, time, 0.0, vol, carry=0.0)
+        assert bjerksund_stensland_2002(option_inputs, OptionType.PUT) == pytest.approx(
+            price(option_inputs, OptionType.PUT), rel=1e-12
+        )
+
+    def test_the_two_triggers_are_ordered_and_straddle_the_single_one(self) -> None:
+        """The earlier level sits below the later one, which is what a step means.
+
+        If the scaling in the decay constant were wrong the two would coincide,
+        the formula would collapse to something close to the 1993 one, and every
+        inequality above would still pass.
+        """
+        for row in GRID:
+            option_inputs = inputs_of(row)
+            if option_inputs.b >= option_inputs.rate:
+                continue
+            lower, upper, switch = _two_step_triggers(option_inputs)
+            assert 0.0 < lower < upper
+            assert 0.0 < switch < option_inputs.time
+            assert switch == pytest.approx(0.6180339887 * option_inputs.time, rel=1e-8)
+
+    @pytest.mark.parametrize("option", list(OptionType))
+    def test_degenerate_inputs_give_the_intrinsic_value(self, option: OptionType) -> None:
+        for option_inputs in (
+            Inputs(100.0, 95.0, 0.0, 0.05, 0.2),
+            Inputs(100.0, 95.0, 1.0, 0.05, 0.0),
+        ):
+            expected = max(option.sign * (option_inputs.spot - option_inputs.strike), 0.0)
+            assert bjerksund_stensland_2002(option_inputs, option) >= expected - 1e-12
