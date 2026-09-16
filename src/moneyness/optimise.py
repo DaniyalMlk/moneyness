@@ -198,7 +198,7 @@ def nelder_mead(
         raise ValueError(f"objective is not finite at the starting point {as_point(start)}")
 
     iterations = 0
-    for iterations in range(1, max_iterations + 1):  # noqa: B007
+    for iterations in range(1, max_iterations + 1):
         order = sorted(range(n + 1), key=lambda i: values[i])
         simplex = [simplex[i] for i in order]
         values = [values[i] for i in order]
@@ -212,8 +212,12 @@ def nelder_mead(
 
         centroid = tuple(sum(p[j] for p in simplex[:-1]) / n for j in range(n))
 
-        def blend(towards: tuple[float, ...], weight: float) -> tuple[float, ...]:
-            return tuple(c + weight * (t - c) for c, t in zip(centroid, towards, strict=True))
+        def blend(
+            towards: tuple[float, ...],
+            weight: float,
+            centre: tuple[float, ...] = centroid,
+        ) -> tuple[float, ...]:
+            return tuple(c + weight * (t - c) for c, t in zip(centre, towards, strict=True))
 
         worst = simplex[-1]
         reflected = blend(worst, -alpha)
