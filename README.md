@@ -188,6 +188,18 @@ mypy                   # strict type checking, sources and tests
 ruff check .           # lint
 ```
 
+The same three run on every push and pull request, and the suite runs on each
+Python version the package claims to support rather than only the newest. That
+matters more here than it would in most projects: there are no dependencies to
+resolve differently, so an interpreter difference surfaces directly as a
+difference in floating-point or `math` behaviour — which is precisely what a
+single-version matrix is the wrong shape to catch.
+
+A fourth job builds the wheel, installs it into an empty virtualenv with no
+source tree in sight, and runs the console entry point. An entry point can be
+perfectly healthy in a source checkout and broken the moment it is installed,
+and nothing short of installing it will say so.
+
 ## Status
 
 Phases 1 to 3 of [the roadmap](ROADMAP.md) are in place — the pricing core, the
@@ -197,6 +209,3 @@ boundary and the Bjerksund-Stensland closed form, and the command-line interface
 from phase 7. The volatility surface and Monte Carlo are next, along with the
 2002 two-step refinement of the closed form, which needs a bivariate normal
 distribution function.
-
-Continuous integration is not yet configured, so the suite is run locally; the
-commands above are the whole of it.
