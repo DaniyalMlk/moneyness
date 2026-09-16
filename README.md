@@ -281,6 +281,36 @@ estimate = barrier(option, OptionType.CALL, 90.0, Barrier.DOWN_AND_OUT, 50)
 estimate.value, estimate.standard_error, estimate.interval(0.95)
 ```
 
+## From the command line, on a whole surface
+
+`surface` reads a CSV of `maturity,strike,vol` — a file, or `-` for standard
+input — fits an SVI slice per maturity, and reports what the result implies.
+
+```bash
+moneyness surface --quotes quotes.csv --spot 100 --rate 0.05 --local-vol
+```
+
+```
+ maturity  quotes        rmse     max err         a        b      rho        m        s    left   right    worst g
+------------------------------------------------------------------------------------------------------------------------
+   0.2500       9   4.504e-12   9.550e-12   0.02000  0.15000 -0.35000 -0.00000  0.12000  -0.203   0.097    0.24751
+   1.0000       9   1.420e-11   2.529e-11   0.05000  0.22000 -0.30000 -0.00000  0.18000  -0.286   0.154    0.24879
+   2.0000       9   1.808e-11   3.465e-11   0.10000  0.30000 -0.25000  0.00000  0.25000  -0.375   0.225    0.25048
+
+calendar (total variance must not fall as maturity grows)
+  0.2500 -> 1.0000  clear, closest approach 0.05052
+  1.0000 -> 2.0000  clear, closest approach 0.08452
+
+verdict: no arbitrage found
+```
+
+The wing slopes are printed next to the fit quality on purpose: a slope near
+Lee's bound of 2 is a warning about the tails whatever the residual says.
+
+It exits 1 when the fitted surface admits arbitrage, so it can be used as a
+check in a pipeline. That is a finding about the data rather than a failure of
+the request, which is why it is an exit status and not an exception.
+
 ## Running the tests
 
 ```bash
@@ -313,6 +343,10 @@ volatility. Most of the command-line interface from phase 7 is there too.
 Phase 6 is in place too: an exact Monte Carlo with antithetic and control
 variates, Asian and barrier payoffs, and the Brownian bridge correction.
 
-What remains is the command-line surface reporting and maturity table from phase
-7, and the 2002 two-step refinement of the closed form, which needs a bivariate
-normal distribution function.
+Phase 7 is complete: the command line covers pricing, Greeks, implied
+volatility, a strike ladder, a term structure, American valuation and surface
+fitting with arbitrage reporting.
+
+One item remains on the roadmap — the 2002 two-step refinement of the
+Bjerksund-Stensland boundary, which needs a bivariate normal distribution
+function.
