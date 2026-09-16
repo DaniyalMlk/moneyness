@@ -235,3 +235,76 @@ def test_american_says_when_the_trigger_is_never_reached(
     out = capsys.readouterr().out
     assert "never reached" in out
     assert "inf" not in out
+
+
+# ---------------------------------------------------------------------------
+# term: one strike across maturities
+# ---------------------------------------------------------------------------
+
+
+def test_term_prints_one_row_per_maturity(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["term", "--spot", "100", "--strike", "100", "--vol", "0.2",
+                 "--rate", "0.05", "--near", "0.1", "--far", "2.0", "--steps", "7"]) == 0
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert len(lines) == 9  # header, rule, seven rows
+    assert "maturity" in lines[0]
+
+
+def test_term_rows_agree_with_the_library(capsys: pytest.CaptureFixture[str]) -> None:
+    """The point of an end-to-end test: the numbers printed are the library's."""
+    assert main(["term", "--spot", "100", "--strike", "95", "--vol", "0.25",
+                 "--rate", "0.03", "--near", "0.25", "--far", "4.0", "--steps", "5"]) == 0
+    rows = capsys.readouterr().out.strip().splitlines()[2:]
+    assert len(rows) == 5
+    for row in rows:
+        fields = row.split()
+        time = float(fields[0])
+        inputs = Inputs(100.0, 95.0, time, 0.03, 0.25)
+        assert float(fields[1]) == pytest.approx(price(inputs, OptionType.CALL), abs=1e-6)
+        assert float(fields[2]) == pytest.approx(price(inputs, OptionType.PUT), abs=1e-6)
+
+
+def test_term_spaces_maturities_geometrically(capsys: pytest.CaptureFixture[str]) -> None:
+    """Ratios, not differences.
+
+    An even grid from a month to two years puts almost every row at the long
+    end, where the term structure barely moves, and none at the short end,
+    where it moves most.
+    """
+    assert main(["term", "--spot", "100", "--strike", "100", "--vol", "0.2",
+                 "--near", "0.1", "--far", "10.0", "--steps", "5"]) == 0
+    rows = capsys.readouterr().out.strip().splitlines()[2:]
+    times = [float(row.split()[0]) for row in rows]
+    near, far, steps = 0.1, 10.0, 5
+    ratio = (far / near) ** (1.0 / (steps - 1))
+    expected = [near * ratio**i for i in range(steps)]
+    # The column prints four decimals, so the comparison is to that precision
+    # rather than to the float the program actually computed.
+    for shown, want in zip(times, expected, strict=True):
+        assert shown == pytest.approx(want, abs=1e-4)
+
+    # The distinction that matters: the middle row is the geometric mean of the
+    # endpoints, not the arithmetic one. An even grid would put it at 5.05.
+    assert times[2] == pytest.approx(math.sqrt(near * far), abs=1e-4)
+
+
+def test_term_accepts_a_single_maturity(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["term", "--spot", "100", "--strike", "100", "--vol", "0.2",
+                 "--near", "1.0", "--far", "1.0", "--steps", "1"]) == 0
+    rows = capsys.readouterr().out.strip().splitlines()[2:]
+    assert len(rows) == 1
+    assert float(rows[0].split()[0]) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--near", "0", "--far", "1"],
+        ["--near", "-1", "--far", "1"],
+        ["--near", "2", "--far", "1"],
+        ["--near", "0.1", "--far", "1", "--steps", "0"],
+    ],
+)
+def test_term_rejects_a_nonsensical_range(extra: list[str]) -> None:
+    with pytest.raises(SystemExit):
+        main(["term", "--spot", "100", "--strike", "100", "--vol", "0.2", *extra])
