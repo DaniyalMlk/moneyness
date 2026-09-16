@@ -311,6 +311,57 @@ It exits 1 when the fitted surface admits arbitrage, so it can be used as a
 check in a pipeline. That is a finding about the data rather than a failure of
 the request, which is why it is an exit status and not an exception.
 
+## A seventh decision: take the maximum of admissible bounds
+
+The Bjerksund-Stensland approximation is the exact value of a *flat-boundary*
+exercise strategy — admissible but not optimal — which is what makes
+`European <= approximation <= American` hold by construction rather than by
+luck. The 2002 refinement lets the boundary step once partway through the
+option's life, which needs a bivariate normal distribution function: the joint
+event of not having crossed the first level before the step and finishing in
+the money is inherently two-dimensional.
+
+It is tempting to argue the two-step value can never be worse than the flat
+one, since a flat boundary is the special case of the two levels coinciding.
+That argument is about the *optimal* two-step boundary. The levels here come
+from a closed-form heuristic optimised for neither, and measured over 240
+random markets the raw 2002 formula falls below the 1993 value on nine of them
+— and in one case below the European price, which no American value may do,
+since holding to expiry is always available.
+
+So `bjerksund_stensland_2002` returns the largest of the European price, the
+1993 value and the two-step value. Each is the value of a strategy the holder
+could actually follow, so each is a lower bound, and the largest of several
+lower bounds is both the sharpest available and still a bound:
+
+```
+European <= max(European, 1993, 2002) <= American
+```
+
+That is not a patch over a numerical problem. It is the right way to combine
+admissible strategies when none dominates everywhere. It binds on about four
+per cent of that grid, and the suite asserts it binds rather than sitting
+unused — with the specific market that triggers it written into a test.
+
+| | mean absolute error vs. a converged lattice |
+|---|---|
+| 1993 single boundary | 0.0666 |
+| 2002, guarded | 0.0420 |
+
+The bivariate normal underneath is built from Sheppard's identity with the
+substitution `t = sin(theta)`, which removes the `1/sqrt(1 - t^2)` singularity
+exactly where it would otherwise bite — at correlations near one, which is
+where the two-step boundary evaluates it. Worst absolute error against
+fifty-digit integration over 810 points, correlations from -0.9999 to 0.9999
+and arguments to eight standard deviations: **2.2e-16**.
+
+Its Gauss-Legendre nodes are computed from the Legendre recurrence at import
+rather than transcribed. Forty table entries all look equally plausible, and a
+single wrong digit gives a rule that is slightly wrong everywhere — accurate
+enough to look fine and never exactly right. The tests check the rule by the
+property that defines it: exact on every polynomial up to degree `2n - 1`, and
+not beyond.
+
 ## Running the tests
 
 ```bash
@@ -347,6 +398,5 @@ Phase 7 is complete: the command line covers pricing, Greeks, implied
 volatility, a strike ladder, a term structure, American valuation and surface
 fitting with arbitrage reporting.
 
-One item remains on the roadmap — the 2002 two-step refinement of the
-Bjerksund-Stensland boundary, which needs a bivariate normal distribution
-function.
+Every item on [the roadmap](ROADMAP.md) is now done, including the 2002
+two-step boundary and the bivariate normal distribution function it needed.
