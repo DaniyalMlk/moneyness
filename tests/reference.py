@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mpmath import diff, erfc, exp, log, mp, mpf, pi, sqrt
+from mpmath import diff, erfc, exp, log, mp, mpf, pi, quad, sqrt
 
 mp.dps = 50
 
@@ -180,3 +180,41 @@ def ref_black_derivative(forward: float, strike: float, total_vol: float) -> flo
         return f * (erfc(-d1 / sqrt(2)) / 2) - k * (erfc(-d2 / sqrt(2)) / 2)
 
     return float(diff(at, mpf(total_vol)))
+
+
+def ref_norm_cdf2(a: float, b: float, rho: float) -> float:
+    """The bivariate normal distribution function at fifty digits.
+
+    Reduced to a single integral over the first variable, with the second
+    integrated out analytically:
+
+        Phi2(a, b; rho) = int_{-inf}^{a} phi(x) Phi((b - rho x) / sqrt(1 - rho^2)) dx
+
+    The subdivision points are not decoration. As the correlation approaches
+    one in absolute value the inner distribution function becomes a step of
+    width ``sqrt(1 - rho^2)`` centred at ``x = b / rho``, and an adaptive
+    quadrature handed the whole half-line will step over it and return a
+    confidently wrong answer. A first version of this function did exactly
+    that: it disagreed with the implementation by one part in a hundred at
+    ``rho = -0.9999``, and the implementation was right. Naming the transition
+    is what makes this an oracle rather than a second opinion.
+    """
+    left, right, correlation = mpf(a), mpf(b), mpf(rho)
+    if correlation <= -1:
+        return max(0.0, ref_norm_cdf(a) - ref_norm_cdf(-b))
+    if correlation >= 1:
+        return ref_norm_cdf(min(a, b))
+
+    spread = sqrt(1 - correlation * correlation)
+
+    def integrand(x: Any) -> Any:
+        inner = (right - correlation * x) / spread
+        return exp(-x * x / 2) / sqrt(2 * pi) * erfc(-inner / sqrt(2)) / 2
+
+    points = [mpf(-45)]
+    if correlation != 0:
+        transition = right / correlation
+        points.extend(transition + step * spread for step in (-8, -4, -2, -1, 0, 1, 2, 4, 8))
+    points.extend(mpf(x) for x in (-6, -3, -1, 0, 1, 3, 6))
+    inside = sorted({p for p in points if mpf(-45) < p < left})
+    return float(quad(integrand, [mpf(-45), *inside, left]))
