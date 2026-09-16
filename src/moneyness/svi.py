@@ -129,10 +129,20 @@ class SVI:
         log-moneyness. Convexity is necessary for a slice to be free of
         butterfly arbitrage but nowhere near sufficient, which is the whole
         reason :func:`durrleman` exists.
+
+        Written as ``b (s/r)^2 / r`` rather than the algebraically identical
+        ``b s^2 / r^3``. The two differ in floating point at the extremes of the
+        domain, and only one of them survives: a very sharp vertex makes ``r``
+        small, and cubing a small number underflows to zero long before the
+        ratio itself is in any trouble, turning a finite answer into a division
+        by zero. Grouping the division as a squared ratio keeps every
+        intermediate inside the representable range, since ``s <= r`` bounds the
+        ratio by one.
         """
         y = k - self.m
         r = math.hypot(y, self.s)
-        return self.b * self.s * self.s / (r * r * r)
+        ratio = self.s / r
+        return self.b * ratio * ratio / r
 
     def volatility(self, k: float, time: float) -> float:
         """The Black-Scholes volatility the slice implies at maturity ``time``."""
