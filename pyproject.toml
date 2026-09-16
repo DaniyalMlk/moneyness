@@ -15,7 +15,11 @@ dependencies = []
 moneyness = "moneyness.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "mypy>=1.8", "ruff>=0.4"]
+# mpmath is a test dependency, not a runtime one. The library itself has no
+# dependencies at all; the tests use mpmath to evaluate the same mathematics at
+# fifty decimal digits, independently of the double-precision code under test.
+# Without it the suite does not collect.
+dev = ["pytest>=8", "mypy>=1.8", "ruff>=0.4", "mpmath>=1.3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
