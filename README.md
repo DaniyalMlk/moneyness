@@ -238,6 +238,49 @@ surface = Surface([(0.25, near), (1.0, mid), (2.0, far)])
 surface.local_vol(k=-0.2, time=0.8).volatility
 ```
 
+## A sixth decision: keep the simulation exact, and say what the error is
+
+The Monte Carlo does not run an Euler scheme. Geometric Brownian motion has
+lognormal increments in closed form, so a path can be drawn with exactly the
+right joint law at its monitoring dates, and there is no step-size bias to trade
+against sample count.
+
+That separation earns its keep on barrier options. A barrier monitored weekly
+genuinely is a different contract from one monitored continuously — not a worse
+approximation to it — and if the simulation carried a discretisation error on
+top, the two effects would be impossible to tell apart. Here the only
+discretisation is the monitoring schedule, which is a term of the contract.
+
+Standard errors are computed on the count of *independent* samples, not paths.
+Under antithetic sampling a path and its mirror are not independent, which is
+the entire point of drawing them, so the pair is one sample. Dividing by the
+path count instead understates the error by about `sqrt(2)` — silently, and in
+the direction that flatters the estimate. The suite checks the reported standard
+error against the spread actually observed across sixty seeds, which is the
+assertion that would catch it.
+
+Three claims here are measured rather than asserted:
+
+| claim | measured |
+|---|---|
+| convergence at `n^-1/2` | RMS error over 40 seeds falls by 2.02x, 2.13x, 2.34x per 4x sample increase |
+| the geometric-average control on an arithmetic Asian | standard error falls by more than 10x |
+| the Brownian bridge on a barrier | step-dependence falls from 1.03 to 0.07 across an 80x sweep of monitoring frequency, about 15x |
+
+Knock-ins are priced as the vanilla minus the knock-out on the same paths, so
+in-out parity holds exactly rather than to within two simulations' noise. The
+barrier prices are validated against a Reiner-Rubinstein formula implemented
+separately in the test suite — the bridge is essentially unbiased at ten
+monitoring dates, where the naive estimate is off by many standard errors.
+
+```python
+from moneyness import Inputs, OptionType, Settings, Barrier, barrier
+
+option = Inputs(100.0, 100.0, 1.0, 0.05, 0.2)
+estimate = barrier(option, OptionType.CALL, 90.0, Barrier.DOWN_AND_OUT, 50)
+estimate.value, estimate.standard_error, estimate.interval(0.95)
+```
+
 ## Running the tests
 
 ```bash
@@ -267,6 +310,9 @@ the Bjerksund-Stensland closed form, and phase 5, the volatility surface: SVI
 slices and their calibration, both arbitrage conditions, and Dupire local
 volatility. Most of the command-line interface from phase 7 is there too.
 
-Monte Carlo is next, along with surface reporting from the command line and the
-2002 two-step refinement of the closed form, which needs a bivariate normal
-distribution function.
+Phase 6 is in place too: an exact Monte Carlo with antithetic and control
+variates, Asian and barrier payoffs, and the Brownian bridge correction.
+
+What remains is the command-line surface reporting and maturity table from phase
+7, and the 2002 two-step refinement of the closed form, which needs a bivariate
+normal distribution function.
