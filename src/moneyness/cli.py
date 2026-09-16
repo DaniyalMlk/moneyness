@@ -209,9 +209,11 @@ def _run_term(args: argparse.Namespace) -> int:
 def _read_quotes(source: str) -> dict[float, list[tuple[float, float]]]:
     """Read ``maturity,strike,vol`` rows, grouped by maturity.
 
-    A header row is optional and detected by trying to parse the first field as
-    a number, which is more forgiving than demanding a particular spelling and
-    less fragile than guessing from the text.
+    A header row is optional and detected by trying to parse it as numbers,
+    which is more forgiving than demanding a particular spelling and less
+    fragile than guessing from the text. It is allowed to follow comment lines
+    rather than having to be the very first line, since a file that explains
+    where its quotes came from is more useful than one that does not.
 
     Args:
         source: Path to a CSV, or ``-`` for standard input.
@@ -246,8 +248,8 @@ def _read_quotes(source: str) -> dict[float, list[tuple[float, float]]]:
         try:
             maturity, strike, vol = (float(field) for field in cleaned[:3])
         except ValueError:
-            if number == 1:
-                continue  # a header
+            if not grouped:
+                continue  # a header, wherever it happens to sit
             raise SystemExit(f"row {number}: {cleaned[:3]} are not three numbers") from None
         if maturity <= 0.0:
             raise SystemExit(f"row {number}: maturity {maturity} is not positive")
