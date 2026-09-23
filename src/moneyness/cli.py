@@ -19,6 +19,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+from . import __version__
 from .american import bjerksund_stensland, bjerksund_stensland_2002, trigger_price
 from .bsm import Inputs, OptionType, forward, parity_gap, price
 from .greeks import (
@@ -456,6 +457,9 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="moneyness", description="Option pricing, Greeks and implied volatility."
     )
+    # Worth having for its own sake, and it doubles as the cheapest possible
+    # smoke test of an install: it imports the package and prints something.
+    parser.add_argument("--version", action="version", version=f"moneyness {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     price_parser = sub.add_parser("price", help="price one option")
