@@ -76,3 +76,18 @@ an independent method that should agree to a stated tolerance.
 - [x] Surface fitting and arbitrage reporting from the command line
 - [x] Continuous integration for the test suite and the type checker, across every
       supported interpreter, with the built wheel's entry point exercised
+
+## Phase 8 — Distribution
+
+- [x] MIT licence text in the tree, and inside both the wheel and the sdist
+- [x] Distribution metadata an index can present: authors, keywords, classifiers,
+      project URLs, and the licence as an SPDX expression
+- [x] `moneyness.__version__`, asserted against both the installed metadata and
+      the version declared in `pyproject.toml`
+- [x] A release driven by a version tag, publishing with the index's trusted
+      publishing flow, so no upload credential exists in the repository — and
+      refusing to publish when the tag and the declared version disagree
+- [x] The sdist and the wheel each installed into a clean environment, with the
+      entry point run out of both, on pull requests as well as on a tag
+- [ ] A first release on the index, which waits on the publisher being registered
+      there for this project

@@ -49,6 +49,10 @@ from .normal import norm_cdf, norm_pdf, norm_ppf
 from .surface import Calendar, LocalVol, Surface
 from .svi import SVI, Butterfly, Fit, calibrate, density, durrleman
 
+# Kept in step with the version in pyproject.toml by a test, because the two
+# are written in different files and nothing else would notice them drifting.
+__version__ = "0.1.0"
+
 __all__ = [
     "SVI",
     "Barrier",
@@ -68,6 +72,7 @@ __all__ = [
     "Settings",
     "Solution",
     "Surface",
+    "__version__",
     "asian",
     "barrier",
     "bjerksund_stensland",

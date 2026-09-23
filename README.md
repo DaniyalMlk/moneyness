@@ -13,11 +13,39 @@ data more often than the textbook middle does.
 ## Installing
 
 ```bash
+pip install moneyness
+```
+
+Python 3.10 or newer. The library itself imports only the standard library, so
+there is nothing else to resolve and nothing to compile.
+
+Working on it instead of with it:
+
+```bash
 pip install -e ".[dev]"
 ```
 
-Python 3.10 or newer. The library itself imports only the standard library;
 `pytest`, `mypy`, `ruff` and `mpmath` are used for development and testing.
+`mpmath` is not optional for the suite — see the decision below.
+
+## Releasing
+
+The version lives in `pyproject.toml` and is mirrored by `moneyness.__version__`;
+a test asserts the two agree, and the release refuses to run if the tag
+disagrees with either.
+
+```bash
+# after the version bump has landed on main
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The tag builds the sdist and the wheel, installs each into a clean environment,
+runs the entry point out of both, and then publishes. Publishing uses the index's
+trusted-publishing flow, so there is no API token in this repository, in the
+workflow, or in the repository's secrets. Registering the publisher on the index
+is a one-time step done there, not here, and it names this repository, the
+`release.yml` workflow and the `pypi` environment.
 
 ## Using it
 

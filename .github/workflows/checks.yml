@@ -94,6 +94,10 @@ jobs:
   # while the built wheel installs a script that fails to import. Building the
   # wheel, installing it somewhere with no source tree in sight, and running the
   # command is the only check that covers it.
+  #
+  # This job is deliberately the same shape as the build job in release.yml, so
+  # that a distribution problem shows up on a pull request rather than on a
+  # pushed tag, where a version cannot be reissued.
   package:
     name: package
     runs-on: ubuntu-latest
@@ -106,12 +110,40 @@ jobs:
 
       - name: Build
         run: |
-          python -m pip install --upgrade pip build
+          python -m pip install --upgrade pip build twine
           python -m build
+
+      # The same reading of the metadata the index performs on upload. Catching
+      # a malformed description or a bad classifier here is free.
+      - name: Check the metadata the index will read
+        run: python -m twine check --strict dist/*
 
       - name: Install the wheel and run the entry point
         run: |
           cd "$(mktemp -d)"
           python -m venv venv
           ./venv/bin/pip install "$GITHUB_WORKSPACE"/dist/*.whl
+          ./venv/bin/moneyness --version
           ./venv/bin/moneyness price --spot 100 --strike 100 --time 1 --rate 0.05 --vol 0.2
+
+      # The sdist is built by a different code path from the wheel, and a file
+      # left out of one can be present in the other: py.typed and LICENSE both
+      # arrive by mechanisms that apply to only one of the two. Installing the
+      # wheel says nothing about whether the sdist is complete.
+      - name: Install the sdist and run the entry point
+        run: |
+          cd "$(mktemp -d)"
+          python -m venv venv
+          ./venv/bin/pip install "$GITHUB_WORKSPACE"/dist/*.tar.gz
+          ./venv/bin/moneyness --version
+          ./venv/bin/moneyness price --spot 100 --strike 100 --time 1 --rate 0.05 --vol 0.2
+
+      # The metadata tests are the ones that only mean something against an
+      # installed distribution: they read License-Expression, License-File and
+      # the classifiers out of the installed dist-info, which does not exist
+      # when the tests run from an editable checkout in the jobs above.
+      - name: The metadata tests run against the installed wheel
+        run: |
+          python -m venv /tmp/meta
+          /tmp/meta/bin/pip install dist/*.whl pytest
+          /tmp/meta/bin/python -m pytest tests/test_metadata.py -q
