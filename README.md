@@ -16,6 +16,13 @@ data more often than the textbook middle does.
 pip install moneyness
 ```
 
+> **Not on the package index yet.** The `pip install` line above is what it
+> will be; until the first release lands, install from source:
+>
+> ```bash
+> pip install "git+https://github.com/DaniyalMlk/moneyness.git"
+> ```
+
 Python 3.10 or newer. The library itself imports only the standard library, so
 there is nothing else to resolve and nothing to compile.
 
