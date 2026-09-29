@@ -556,3 +556,89 @@ def test_surface_ignores_comment_lines(
     path.write_text("# a note about where these came from\n" + body, encoding="utf-8")
     assert main(["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05"]) == 0
     assert "verdict: no arbitrage found" in capsys.readouterr().out
+
+
+LADDER_ROWS = ("80.", "90.", "100.", "110.", "120.")
+
+HESTON_ARGS = [
+    "heston",
+    "--spot", "100", "--time", "1.0", "--future",
+    "--v0", "0.04", "--kappa", "1.5768", "--theta", "0.04",
+    "--sigma", "0.5751", "--rho", "-0.5711",
+    "--low", "80", "--high", "120", "--steps", "5",
+]
+
+
+def test_heston_prints_a_smile(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(HESTON_ARGS) == 0
+    out = capsys.readouterr().out
+    assert "implied vol" in out
+    assert "Feller condition  fails" in out
+    # One row per strike, plus the header, the rule and the four summary lines.
+    rows = [line for line in out.splitlines() if line.strip().startswith(LADDER_ROWS)]
+    assert len(rows) == 5
+
+
+def test_heston_prices_each_strike_out_of_the_money(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(HESTON_ARGS) == 0
+    rows = [
+        line.split()
+        for line in capsys.readouterr().out.splitlines()
+        if line.strip().startswith(LADDER_ROWS)
+    ]
+    sides = [row[1] for row in rows]
+    assert sides == ["put", "put", "call", "call", "call"]
+
+
+def test_heston_reproduces_the_library_prices(capsys: pytest.CaptureFixture[str]) -> None:
+    from moneyness.heston import Contract, Heston
+    from moneyness.heston import price as heston_price
+
+    assert main(HESTON_ARGS) == 0
+    rows = [
+        line.split()
+        for line in capsys.readouterr().out.splitlines()
+        if line.strip().startswith(LADDER_ROWS)
+    ]
+    model = Heston(0.04, 1.5768, 0.04, 0.5751, -0.5711)
+    for row in rows:
+        strike, side, value = float(row[0]), row[1], float(row[2])
+        contract = Contract(100.0, strike, 1.0, 0.0, carry=0.0)
+        want = heston_price(model, contract, OptionType(side))
+        assert value == pytest.approx(want, abs=1e-8)
+
+
+def test_heston_reports_the_agreement_between_the_two_routes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main([*HESTON_ARGS, "--check"]) == 0
+    out = capsys.readouterr().out
+    assert "largest gap between the Lewis and Gil-Pelaez routes" in out
+    gap = float(out.rsplit(":", 1)[1])
+    assert gap < 1e-9
+
+
+def test_heston_smile_is_downward_sloping_at_negative_correlation(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(HESTON_ARGS) == 0
+    vols = [
+        float(line.split()[3].rstrip("%"))
+        for line in capsys.readouterr().out.splitlines()
+        if line.strip().startswith(LADDER_ROWS)
+    ]
+    assert vols == sorted(vols, reverse=True)
+
+
+def test_heston_refuses_a_bad_ladder(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        main([*HESTON_ARGS[:-4], "--low", "0", "--high", "120"])
+
+
+def test_heston_refuses_a_bad_parameter(capsys: pytest.CaptureFixture[str]) -> None:
+    args = list(HESTON_ARGS)
+    args[args.index("--kappa") + 1] = "0"
+    assert main(args) == 1
+    assert "kappa must be positive" in capsys.readouterr().err
