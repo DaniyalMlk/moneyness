@@ -91,3 +91,19 @@ an independent method that should agree to a stated tolerance.
       entry point run out of both, on pull requests as well as on a tag
 - [ ] A first release on the index, which waits on the publisher being registered
       there for this project
+
+## Phase 9 — Stochastic volatility
+
+- [x] The Heston variance process as a validated parameter object, reporting the
+      Feller condition rather than assuming it
+- [x] The characteristic function of the log forward, in the branch-stable
+      grouping, with the textbook grouping kept alongside so its failure can be
+      measured rather than asserted
+- [x] Gauss-Legendre quadrature in the standard library, adaptive on a finite
+      range and doubling on the half line, shared with the bivariate normal
+- [x] European pricing by Lewis's single integral, and by Heston's pair of
+      probabilities as an independent route to the same number
+- [x] The zero-volatility-of-variance limit equal to the lognormal price on the
+      model's own expected integrated variance, to double precision
+- [x] A strike ladder from the command line, reported as implied volatilities so
+      the generated smile is readable

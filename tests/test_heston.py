@@ -22,6 +22,7 @@ from moneyness.heston import (
     price,
     smile,
 )
+from moneyness.quadrature import semi_infinite_quad
 
 # A parameter set with a pronounced negative skew and a Feller condition that
 # fails, which is the usual situation when a model is fitted to equity index
@@ -272,8 +273,8 @@ class TestBranch:
         # frequencies that carry most of the price are still fine. The price
         # then looks plausible and is wrong.
         def first_failure(u: float) -> float:
-            for j in range(1, 1201):
-                time = j / 20.0
+            for j in range(1, 2401):
+                time = j / 40.0
                 if branch_discrepancy(REFERENCE, u, time) > 1e-6:
                     return time
             raise AssertionError(f"the textbook grouping never failed at u = {u}")
@@ -281,9 +282,9 @@ class TestBranch:
         at_one = first_failure(1.0)
         at_three = first_failure(3.0)
         at_ten = first_failure(10.0)
-        assert at_one == pytest.approx(8.75, abs=0.3)
-        assert at_three == pytest.approx(2.85, abs=0.3)
-        assert at_ten > 0.0
+        assert at_one == pytest.approx(8.65, abs=0.05)
+        assert at_three == pytest.approx(2.875, abs=0.05)
+        assert at_ten == pytest.approx(1.55, abs=0.05)
         assert at_ten < at_three < at_one
 
     def test_the_textbook_grouping_is_degenerate_at_zero_volatility_of_variance(
@@ -534,3 +535,72 @@ class TestSmile:
     def test_a_non_positive_strike_is_refused(self, strike: float) -> None:
         with pytest.raises(ValueError, match="strikes must be positive"):
             smile(REFERENCE, Contract(100.0, 100.0, 1.0, 0.0), [90.0, strike])
+
+
+class TestTheFiguresInTheReadme:
+    """Every number the documentation states, recomputed here.
+
+    A figure in prose is a claim, and a claim that nothing evaluates drifts
+    away from the code the first time the code changes.
+    """
+
+    def test_the_smile_in_the_usage_example(self) -> None:
+        contract = Contract(spot=100.0, strike=100.0, time=1.0, rate=0.0, carry=0.0)
+        vols = [p.implied_vol for p in smile(REFERENCE, contract, [80.0, 100.0, 125.0])]
+        assert vols[0] == pytest.approx(0.228815, abs=1e-6)
+        assert vols[1] == pytest.approx(0.174341, abs=1e-6)
+        assert vols[2] == pytest.approx(0.151918, abs=1e-6)
+
+    def test_the_two_hundred_strike_call_the_sign_error_mispriced(self) -> None:
+        # The true value, the lognormal value it should sit below, and the
+        # value the reversed sign produced. The third is recomputed here by
+        # reversing the sign deliberately, so the comparison is live.
+        contract = Contract(100.0, 200.0, 1.0, 0.02, carry=0.0)
+        true = lewis_price(REFERENCE, contract, OptionType.CALL)
+        lognormal = bs_price(contract.with_vol(0.20), OptionType.CALL)
+        assert true == pytest.approx(0.0012692, abs=1e-7)
+        assert lognormal == pytest.approx(0.0018489, abs=1e-7)
+        assert true < lognormal, "a negative correlation thins the upside tail"
+
+        forward, strike = contract.forward, contract.strike
+        k = math.log(strike / forward)
+
+        def reversed_sign(u: float) -> float:
+            value = complex(math.cos(u * k), math.sin(u * k)) * char_func(
+                REFERENCE, u - 0.5j, contract.time
+            )
+            return value.real / (u * u + 0.25)
+
+        integral = semi_infinite_quad(reversed_sign, tol=1e-12, initial_width=5.0)
+        mirrored = contract.discount * (
+            forward - math.sqrt(forward * strike) / math.pi * integral
+        )
+        assert mirrored == pytest.approx(0.2478, abs=5e-4)
+        assert mirrored / lognormal == pytest.approx(134.0, abs=1.0)
+
+    def test_lewis_is_the_faster_route(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Asserted as a count of transform evaluations rather than as a wall
+        # clock, which is not reproducible on shared hardware. Gil-Pelaez runs
+        # two integrals where Lewis runs one, and that is where the 1.45 in
+        # the README comes from.
+        import moneyness.heston as module
+
+        calls = [0]
+        real = module.char_func
+
+        def counted(
+            model: Heston, u: complex, time: float, branch: Branch = Branch.STABLE
+        ) -> complex:
+            calls[0] += 1
+            return real(model, u, time, branch)
+
+        monkeypatch.setattr(module, "char_func", counted)
+        contract = Contract(100.0, 110.0, 1.0, 0.02, carry=0.0)
+        calls[0] = 0
+        lewis_price(REFERENCE, contract)
+        one = calls[0]
+        calls[0] = 0
+        gil_pelaez_price(REFERENCE, contract)
+        two = calls[0]
+        assert two > one
+        assert two / one == pytest.approx(1.45, abs=0.35)
