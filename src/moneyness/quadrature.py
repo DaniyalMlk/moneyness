@@ -46,6 +46,13 @@ __all__ = [
 # endpoints, so the recursion cannot make progress.
 _MAX_DEPTH = 40
 
+# A budget on panels, not only on depth. Depth alone bounds the work at two to
+# the depth, which is not a bound: an integrand that is rough everywhere —
+# a transform evaluated through a cancelling expression, say — bisects on every
+# branch and runs for hours rather than failing. The budget turns that into an
+# error naming the tolerance, which is the thing the caller can act on.
+_MAX_PANELS = 50_000
+
 # The half line is cut here at the latest. Reaching it means the integrand did
 # not decay, which is a statement about the caller's function.
 _MAX_EXTENSIONS = 60
@@ -148,6 +155,24 @@ def fixed_quad(f: Callable[[float], float], a: float, b: float, order: int = 20)
     return half_width * total
 
 
+class _Budget:
+    """A mutable count of panels, shared down one recursion."""
+
+    __slots__ = ("left",)
+
+    def __init__(self, panels: int) -> None:
+        self.left = panels
+
+    def spend(self) -> None:
+        self.left -= 1
+        if self.left < 0:
+            raise QuadratureError(
+                "the integrand did not resolve within the panel budget; it is "
+                "either not smooth or the tolerance is below what double "
+                "precision can deliver for it"
+            )
+
+
 def _adaptive(
     f: Callable[[float], float],
     a: float,
@@ -156,7 +181,9 @@ def _adaptive(
     tol: float,
     order: int,
     depth: int,
+    budget: _Budget,
 ) -> float:
+    budget.spend()
     mid = 0.5 * (a + b)
     left = fixed_quad(f, a, mid, order)
     right = fixed_quad(f, mid, b, order)
@@ -166,8 +193,8 @@ def _adaptive(
         # accuracy on this integrand, so the refined value is returned as is.
         return total
     half_tol = 0.5 * tol
-    return _adaptive(f, a, mid, left, half_tol, order, depth + 1) + _adaptive(
-        f, mid, b, right, half_tol, order, depth + 1
+    return _adaptive(f, a, mid, left, half_tol, order, depth + 1, budget) + _adaptive(
+        f, mid, b, right, half_tol, order, depth + 1, budget
     )
 
 
@@ -177,6 +204,7 @@ def adaptive_quad(
     b: float,
     tol: float = 1e-12,
     order: int = 16,
+    budget: _Budget | None = None,
 ) -> float:
     """Integrate ``f`` over ``[a, b]``, bisecting panels until they agree.
 
@@ -186,12 +214,16 @@ def adaptive_quad(
         b: Upper limit.
         tol: Absolute tolerance on the whole integral.
         order: Points in each panel's rule.
+        budget: Panels the recursion may spend. A fresh one is made when this
+            is omitted; the half-line rule passes its own so the whole walk
+            shares a single allowance.
 
     Returns:
         The estimated integral.
 
     Raises:
-        QuadratureError: If ``tol`` is not positive or a limit is not finite.
+        QuadratureError: If ``tol`` is not positive, a limit is not finite, or
+            the panel budget runs out before the integrand resolves.
     """
     if not (tol > 0.0):
         raise QuadratureError(f"tol must be positive, got {tol}")
@@ -200,7 +232,9 @@ def adaptive_quad(
             raise QuadratureError(f"{name} must be finite, got {value}")
     if a == b:
         return 0.0
-    return _adaptive(f, a, b, fixed_quad(f, a, b, order), tol, order, 0)
+    if budget is None:
+        budget = _Budget(_MAX_PANELS)
+    return _adaptive(f, a, b, fixed_quad(f, a, b, order), tol, order, 0, budget)
 
 
 def semi_infinite_quad(
@@ -237,9 +271,12 @@ def semi_infinite_quad(
     lower = a
     width = initial_width
     quiet = 0
+    # One budget for the whole half line, so a walk that bisects hard on every
+    # panel is caught rather than repeating the same failure sixty times.
+    budget = _Budget(_MAX_PANELS)
     for _ in range(_MAX_EXTENSIONS):
         upper = lower + width
-        piece = adaptive_quad(f, lower, upper, tol=tol, order=order)
+        piece = adaptive_quad(f, lower, upper, tol=tol, order=order, budget=budget)
         total += piece
         if abs(piece) <= tol:
             quiet += 1
