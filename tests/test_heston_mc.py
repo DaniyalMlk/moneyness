@@ -576,3 +576,31 @@ class TestInterface:
             assert math.isfinite(estimate.value)
             assert math.isfinite(estimate.standard_error)
             assert estimate.value >= 0.0
+
+
+class TestTheFiguresInTheReadme:
+    """The Euler comparison and the martingale table, recomputed."""
+
+    @pytest.mark.parametrize(
+        ("variance", "step", "basis_points"),
+        [(0.0025, 0.25, 2.06), (0.04, 0.25, -0.23), (0.25, 0.25, -12.75),
+         (0.0025, 0.05, 0.02), (0.04, 0.05, -0.002), (0.25, 0.05, -0.12)],
+    )
+    def test_the_martingale_defect_table(
+        self, variance: float, step: float, basis_points: float
+    ) -> None:
+        assert 1e4 * _defect(REFERENCE, variance, step) == pytest.approx(
+            basis_points, abs=6e-3
+        )
+
+    def test_the_euler_errors_quoted_for_the_reference_call(self) -> None:
+        # The four figures in the table, at the path count they were measured
+        # with. The tolerance is three standard errors of the estimator, which
+        # is what a reader reproducing them would see.
+        contract = Contract(100.0, 100.0, 1.0, 0.02, carry=0.0)
+        exact = transform_price(REFERENCE, contract)
+        assert exact == pytest.approx(6.809, abs=5e-4)
+        settings = Settings(paths=20_000, seed=11, antithetic=True, control=True)
+        for steps, quoted in ((4, 0.718), (8, 0.287), (16, 0.106)):
+            got = _euler_european(REFERENCE, contract, steps, settings) - exact
+            assert got == pytest.approx(quoted, abs=0.15)

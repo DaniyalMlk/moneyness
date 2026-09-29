@@ -107,3 +107,21 @@ an independent method that should agree to a stated tolerance.
       model's own expected integrated variance, to double precision
 - [x] A strike ladder from the command line, reported as implied volatilities so
       the generated smile is readable
+
+## Phase 10 — Simulating the variance process
+
+- [x] Andersen's quadratic-exponential scheme, fitting a non-negative law to the
+      exact conditional moments of the square-root process, so the Feller
+      condition never enters
+- [x] The log price carrying both endpoint variances with weights, and the
+      martingale correction that makes the simulated forward exact per step
+- [x] European, Asian and barrier payoffs with a standard error, antithetic
+      sampling and a control variate, on the interface the lognormal simulation
+      already uses
+- [x] A Brownian-bridge continuity correction for the barrier, using the step's
+      own variance, and the discretely monitored contract available as itself
+- [x] Agreement with the transform within the reported error at four steps a
+      year, including where the Feller condition fails
+- [x] The naive alternative implemented and measured rather than dismissed
+- [x] Simulated payoffs from the command line, reporting the gap to the
+      transform in standard errors where a transform price exists

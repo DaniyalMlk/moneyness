@@ -500,6 +500,77 @@ the low frequencies that carry most of the price are still correct. A price
 computed with it does not look broken. It looks slightly off in the wings,
 which is exactly how a model that has been fitted to the wrong wings looks.
 
+## An eleventh decision: simulate the variance, do not repair it
+
+The variance in Heston's model follows a square-root process, and an Euler
+step can take it negative. Every repair for that biases the price, and the
+bias is not small. Measured against the transform on a one-year
+at-the-money call worth 6.809, full truncation — the mildest repair — is out
+by **0.718 at four steps a year**, halving with each doubling of the grid:
+0.287 at eight, 0.106 at sixteen, 0.039 at thirty-two.
+
+Andersen's scheme instead fits a non-negative law to the exact conditional
+mean and variance of the process, choosing between a squared normal and a
+point mass plus an exponential by the ratio of the second to the square of
+the first. It is **inside its own Monte Carlo error at four steps**, and
+stays there. Reaching that with an Euler grid costs upwards of sixty-four
+times the work.
+
+The failure is sharpest at the origin, and that is where it matters. Started
+at exactly zero, a full-truncation Euler step has no diffusion at all — the
+volatility of the increment is the square root of a variance that is zero —
+so the path has to be lifted off the origin by drift before any randomness
+enters, and the simulated conditional variance comes back below
+three-quarters of the true one. A model whose Feller condition fails, which
+is the usual outcome of fitting one to index quotes, spends time at exactly
+that point.
+
+### What the martingale correction is actually worth
+
+The drift constant can be set per step so the simulated forward is exactly
+right rather than approximately right, using the proposal's own moment
+generating function. It is often presented as the point of the scheme. It is
+not, and the numbers are worth stating because the honest version is more
+useful than the impressive one.
+
+The uncorrected constant is chosen so the defect nearly cancels when the
+variance sits at its long-run level, and what is left there is third order
+in the step. On the reference parameters, per step:
+
+| variance | four steps a year | twenty steps a year |
+|---|---|---|
+| 0.0025 | +2.06 bp | +0.02 bp |
+| 0.04 (= `theta`) | -0.23 bp | -0.002 bp |
+| 0.25 | -12.75 bp | -0.12 bp |
+
+Two things to read off that. The defect changes sign as the variance crosses
+`theta`, so a path that wanders on both sides of it partly cancels its own
+error — which is why the correction is worth less than a glance at the worst
+cell suggests. And dividing the step by five divides the defect by about a
+hundred and twenty-five, not by five.
+
+So it earns its place on coarse grids and in the wings of a simulated
+distribution, where the variance is far from `theta` and stays there, and
+does nothing measurable in the middle. It is on by default and can be
+switched off.
+
+### Two bugs the tests found
+
+Both in the zero-volatility-of-variance limit, which is the case with an
+independent answer and therefore the case worth testing.
+
+The proposal divided by a conditional variance that was exactly zero. And
+more interestingly, the log price lost its diffusion entirely. The
+correlated part of the price's shock is normally carried by the variance's
+own increment, through a substitution that divides by the volatility of
+variance — which is why the diffusion coefficients hold only the orthogonal
+fraction `1 - rho^2`. As that volatility falls, the variance increment
+becomes less random and supplies proportionally less, while the coefficients
+in front of it grow like its reciprocal and the total stays right. At
+exactly zero the increment is not random at all, the substitution does not
+exist, and the correlated fraction has to be put back by hand. The limit is
+discontinuous in the decomposition though not in the law.
+
 ## Running the tests
 
 ```bash
@@ -540,6 +611,11 @@ Phase 9 adds a second model: Heston's stochastic volatility, its
 characteristic function in the branch-stable grouping, two independent
 pricing routes, and the quadrature they run on — all still in the standard
 library, so the package remains dependency-free.
+
+Phase 10 simulates the model rather than transforming it: Andersen's
+quadratic-exponential scheme, Asian and barrier payoffs under stochastic
+volatility, and an independent check on the transform that shares no code
+with it.
 
 Every item on [the roadmap](ROADMAP.md) is now done except the first release
 on the package index, which waits on the publisher being registered there.
