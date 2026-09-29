@@ -45,6 +45,13 @@ from .heston import (
     lewis_price,
     smile,
 )
+from .heston_mc import (
+    MartingaleCorrectionError,
+    Scheme,
+    conditional_mean,
+    conditional_variance,
+    variance_path,
+)
 from .implied import Bounds, Method, Quote, Solution, bounds, implied_vol, solve
 from .lattice import (
     Exercise,
@@ -87,10 +94,12 @@ __all__ = [
     "Lattice",
     "LatticePrice",
     "LocalVol",
+    "MartingaleCorrectionError",
     "Method",
     "OptionType",
     "QuadratureError",
     "Quote",
+    "Scheme",
     "Settings",
     "SmilePoint",
     "Solution",
@@ -108,6 +117,8 @@ __all__ = [
     "char_func",
     "charm",
     "colour",
+    "conditional_mean",
+    "conditional_variance",
     "d1_d2",
     "delta",
     "density",
@@ -144,6 +155,7 @@ __all__ = [
     "theta",
     "trigger_price",
     "vanna",
+    "variance_path",
     "vega",
     "veta",
     "volga",

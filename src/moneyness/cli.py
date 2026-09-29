@@ -42,8 +42,13 @@ from .greeks import (
     zomma,
 )
 from .heston import Contract, Heston, gil_pelaez_price, lewis_price, smile
+from .heston import price as heston_price
+from .heston_mc import asian as heston_asian
+from .heston_mc import barrier as heston_barrier
+from .heston_mc import european as heston_european
 from .implied import Method, Quote, bounds, solve
 from .lattice import Exercise, Lattice, boundary, min_steps, price_lattice, richardson
+from .monte_carlo import Barrier, Settings
 from .surface import Surface
 from .svi import SVI, Butterfly, calibrate
 
@@ -508,6 +513,67 @@ def _run_heston(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_heston_path(args: argparse.Namespace) -> int:
+    """A payoff the transform cannot reach, simulated under stochastic volatility.
+
+    The European case is included on purpose even though the transform prices
+    it exactly: it is the only payoff here with a known answer, so it is the
+    one that says whether the simulation is working before the other two are
+    believed.
+    """
+    if args.steps < 1:
+        raise SystemExit("--steps must be at least 1")
+    model = Heston(args.v0, args.kappa, args.theta, args.sigma, args.rho)
+    contract = Contract(
+        args.spot, args.strike, args.time, args.rate, carry=_carry_from(args)
+    )
+    option = _option_of(args)
+    settings = Settings(
+        paths=args.paths, seed=args.seed, antithetic=True, control=True
+    )
+
+    if args.payoff == "european":
+        estimate = heston_european(
+            model, contract, option, args.steps, settings, not args.no_martingale
+        )
+    elif args.payoff == "asian":
+        estimate = heston_asian(
+            model, contract, option, args.steps, settings, not args.no_martingale
+        )
+    else:
+        if args.level is None:
+            raise SystemExit("--level is required for a barrier payoff")
+        estimate = heston_barrier(
+            model,
+            contract,
+            option,
+            Barrier(args.barrier),
+            args.level,
+            args.steps,
+            settings,
+            not args.no_martingale,
+            not args.no_bridge,
+        )
+
+    low, high = estimate.interval(0.95)
+    print(f"payoff            {args.payoff} {option.value}")
+    print(f"forward           {contract.forward:.6f}")
+    print(f"Feller condition  {'holds' if model.satisfies_feller else 'fails'}")
+    print(f"paths             {estimate.paths} in {estimate.samples} samples")
+    print(f"steps             {args.steps}")
+    print(f"control           {estimate.control or 'none'}")
+    print(f"value             {estimate.value:.6f}")
+    print(f"standard error    {estimate.standard_error:.6f}")
+    print(f"95% interval      [{low:.6f}, {high:.6f}]")
+    if args.payoff == "european":
+        exact = heston_price(model, contract, option)
+        deviations = (estimate.value - exact) / estimate.standard_error
+        print(f"transform price   {exact:.6f}")
+        gap = estimate.value - exact
+        print(f"gap               {gap:+.6f} ({deviations:+.2f} standard errors)")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="moneyness", description="Option pricing, Greeks and implied volatility."
@@ -655,6 +721,48 @@ def _parser() -> argparse.ArgumentParser:
         help="also report how far the two pricing routes disagree",
     )
     heston_parser.set_defaults(handler=_run_heston)
+
+    path_parser = sub.add_parser(
+        "heston-path",
+        help="simulate a payoff under stochastic volatility",
+        description=(
+            "Simulates Heston's model by Andersen's quadratic-exponential scheme "
+            "and prices a European, Asian or barrier payoff from the paths. The "
+            "European case reports the gap to the transform price, which is the "
+            "check that the simulation is working."
+        ),
+    )
+    _add_market(path_parser)
+    path_parser.add_argument("--v0", type=float, required=True, help="variance now")
+    path_parser.add_argument("--kappa", type=float, required=True, help="reversion speed")
+    path_parser.add_argument("--theta", type=float, required=True, help="long-run variance")
+    path_parser.add_argument("--sigma", type=float, required=True, help="volatility of variance")
+    path_parser.add_argument("--rho", type=float, required=True, help="price/variance correlation")
+    path_parser.add_argument(
+        "--payoff", choices=["european", "asian", "barrier"], default="european"
+    )
+    path_parser.add_argument("--steps", type=int, default=32, help="time steps per path")
+    path_parser.add_argument("--paths", type=int, default=20000, help="paths simulated")
+    path_parser.add_argument("--seed", type=int, default=0)
+    path_parser.add_argument("--level", type=float, default=None, help="the barrier")
+    path_parser.add_argument(
+        "--barrier",
+        choices=[item.value for item in Barrier],
+        default=Barrier.DOWN_AND_OUT.value,
+    )
+    path_parser.add_argument(
+        "--no-bridge",
+        action="store_true",
+        dest="no_bridge",
+        help="monitor the barrier only on the grid, with no continuity correction",
+    )
+    path_parser.add_argument(
+        "--no-martingale",
+        action="store_true",
+        dest="no_martingale",
+        help="leave the drift uncorrected, so the simulated forward is only approximate",
+    )
+    path_parser.set_defaults(handler=_run_heston_path)
 
     return parser
 

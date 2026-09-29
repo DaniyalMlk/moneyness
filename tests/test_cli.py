@@ -642,3 +642,66 @@ def test_heston_refuses_a_bad_parameter(capsys: pytest.CaptureFixture[str]) -> N
     args[args.index("--kappa") + 1] = "0"
     assert main(args) == 1
     assert "kappa must be positive" in capsys.readouterr().err
+
+
+PATH_ARGS = [
+    "heston-path",
+    "--spot", "100", "--strike", "100", "--time", "1.0", "--future",
+    "--v0", "0.04", "--kappa", "1.5768", "--theta", "0.04",
+    "--sigma", "0.5751", "--rho", "-0.5711",
+    "--steps", "8", "--paths", "4000",
+]
+
+
+def test_heston_path_reports_the_gap_to_the_transform(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(PATH_ARGS) == 0
+    out = capsys.readouterr().out
+    assert "transform price" in out
+    assert "standard error" in out
+    deviations = float(out.rsplit("(", 1)[1].split()[0])
+    assert abs(deviations) < 4.0
+
+
+def test_heston_path_prices_an_asian(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main([*PATH_ARGS, "--payoff", "asian"]) == 0
+    out = capsys.readouterr().out
+    assert "payoff            asian call" in out
+    # No closed form to compare against, so no gap line is printed.
+    assert "transform price" not in out
+    value = float(out.split("value             ")[1].split()[0])
+    assert 0.0 < value < 100.0
+
+
+def test_heston_path_prices_a_barrier_below_the_vanilla(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main([*PATH_ARGS, "--payoff", "barrier", "--level", "85"]) == 0
+    knock_out = float(
+        capsys.readouterr().out.split("value             ")[1].split()[0]
+    )
+    assert main(PATH_ARGS) == 0
+    vanilla = float(capsys.readouterr().out.split("value             ")[1].split()[0])
+    assert 0.0 < knock_out < vanilla
+
+
+def test_heston_path_needs_a_level_for_a_barrier() -> None:
+    with pytest.raises(SystemExit, match="--level is required"):
+        main([*PATH_ARGS, "--payoff", "barrier"])
+
+
+def test_heston_path_refuses_a_bad_step_count() -> None:
+    args = list(PATH_ARGS)
+    args[args.index("--steps") + 1] = "0"
+    with pytest.raises(SystemExit, match="--steps must be at least 1"):
+        main(args)
+
+
+def test_heston_path_reports_a_bad_parameter_as_an_exit_status(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    args = list(PATH_ARGS)
+    args[args.index("--rho") + 1] = "-2"
+    assert main(args) == 1
+    assert "rho must be in" in capsys.readouterr().err
