@@ -109,6 +109,15 @@ class Scheme(str, Enum):
 
     QUADRATIC = "quadratic"
     EXPONENTIAL = "exponential"
+    DEGENERATE = "degenerate"
+    """The conditional variance is zero, so the step is deterministic.
+
+    Reached when the volatility of variance is zero, and when the process is
+    pinned at the origin because both the current and the long-run variance
+    are. Neither of the two fitted laws is defined there — one divides by the
+    ratio and the other by the mean — and both would be the wrong answer
+    anyway, since there is nothing left to randomise.
+    """
 
 
 def conditional_mean(model: Heston, variance: float, step: float) -> float:
@@ -178,6 +187,8 @@ class _Proposal:
 
     def draw(self, uniform: float) -> float:
         """One variance from one uniform on [0, 1)."""
+        if self.kind is Scheme.DEGENERATE:
+            return self.a
         if self.kind is Scheme.QUADRATIC:
             z = norm_ppf(min(max(uniform, 1e-300), 1.0 - 1e-16))
             root = math.sqrt(self.b_squared) + z
@@ -192,6 +203,8 @@ class _Proposal:
         Raises:
             MartingaleCorrectionError: If the expectation is infinite.
         """
+        if self.kind is Scheme.DEGENERATE:
+            return argument * self.a
         if self.kind is Scheme.QUADRATIC:
             denominator = 1.0 - 2.0 * argument * self.a
             if denominator <= 0.0:
@@ -215,13 +228,17 @@ class _Proposal:
 def _fit(model: Heston, variance: float, step: float) -> _Proposal:
     """Fit a one-step proposal to the exact conditional moments."""
     mean = conditional_mean(model, variance, step)
-    if mean <= 0.0:
-        # Only reachable when theta and the current variance are both zero, in
-        # which case the process is pinned there and so is the proposal.
-        return _Proposal(Scheme.EXPONENTIAL, 0.0, 0.0, 1.0, math.inf)
-    ratio = conditional_variance(model, variance, step) / (mean * mean)
+    spread = conditional_variance(model, variance, step)
+    if mean <= 0.0 or spread <= 0.0:
+        # Zero volatility of variance, a zero-length step, or a process pinned
+        # at the origin. The test is on the ratio of the spread to the mean,
+        # both of which are already in variance units, so it is scale free.
+        return _Proposal(Scheme.DEGENERATE, max(mean, 0.0), 0.0, 0.0, 0.0)
+    ratio = spread / (mean * mean)
     if ratio <= _PSI_CRITICAL:
         inverse = 2.0 / ratio
+        if math.isinf(inverse):
+            return _Proposal(Scheme.DEGENERATE, mean, 0.0, 0.0, 0.0)
         b_squared = inverse - 1.0 + math.sqrt(inverse) * math.sqrt(inverse - 1.0)
         return _Proposal(Scheme.QUADRATIC, mean / (1.0 + b_squared), b_squared, 0.0, 0.0)
     p = (ratio - 1.0) / (ratio + 1.0)
@@ -286,9 +303,26 @@ def _coefficients(model: Heston, step: float) -> _Coefficients:
     """
     rho, sigma, kappa, theta = model.rho, model.sigma, model.kappa, model.theta
     if sigma == 0.0:
-        # Deterministic variance: the correlation has nothing to act on, and
-        # the ratios below are zero over zero rather than large.
-        return _Coefficients(0.0, -0.5 * _GAMMA_1 * step, -0.5 * _GAMMA_2 * step, 0.0, 0.0)
+        # Deterministic variance, and the limit is discontinuous in the
+        # decomposition even though it is not in the law.
+        #
+        # The correlated part of the price's shock is normally carried by the
+        # variance's own increment, through a substitution that divides by
+        # sigma -- which is why ``k3`` and ``k4`` below hold only the
+        # orthogonal fraction ``1 - rho^2``. As sigma falls, that increment
+        # becomes less random and the ``k2`` term supplies proportionally
+        # less, but ``k1`` and ``k2`` grow like ``1 / sigma`` to compensate
+        # and the total stays right. At sigma exactly zero the increment is
+        # not random at all, the substitution does not exist, and the
+        # correlated fraction has to be put back by hand or the simulated
+        # price has no diffusion at all.
+        return _Coefficients(
+            0.0,
+            -0.5 * _GAMMA_1 * step,
+            -0.5 * _GAMMA_2 * step,
+            _GAMMA_1 * step,
+            _GAMMA_2 * step,
+        )
     ratio = rho / sigma
     common = kappa * ratio - 0.5
     return _Coefficients(
