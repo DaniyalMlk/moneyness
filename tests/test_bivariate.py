@@ -15,8 +15,9 @@ import math
 
 import pytest
 
-from moneyness.bivariate import _gauss_legendre, norm_cdf2
+from moneyness.bivariate import _NODES, _ORDER, _WEIGHTS, norm_cdf2
 from moneyness.normal import norm_cdf
+from moneyness.quadrature import gauss_legendre
 
 from .reference import ref_norm_cdf2
 
@@ -34,45 +35,22 @@ REFERENCE_ARGUMENTS = [-8.0, -1.5, 0.0, 1.5, 8.0]
 
 
 class TestQuadratureRule:
-    """The nodes are computed, so the computation has to be checked.
+    """The rule itself is checked in ``test_quadrature``; this checks the wiring.
 
-    A Gauss-Legendre rule of order n integrates every polynomial up to degree
-    2n - 1 exactly, and that single property pins the nodes and weights
-    completely. Checking it is strictly stronger than comparing against a
-    transcribed table, and it cannot be satisfied by a rule with a typo in it.
+    ``bivariate`` used to carry its own copy of the node generator. It now
+    shares one with the transform pricing, so what is left to verify here is
+    that the order this module asks for is the order it gets, and that the
+    shared rule is exact to the degree that order promises.
     """
 
-    @pytest.mark.parametrize("order", [2, 5, 12, 20])
-    def test_weights_sum_to_the_length_of_the_interval(self, order: int) -> None:
-        _, weights = _gauss_legendre(order)
-        assert math.fsum(weights) == pytest.approx(2.0, abs=1e-14)
+    def test_the_module_uses_the_shared_rule_at_its_declared_order(self) -> None:
+        assert gauss_legendre(_ORDER) == (_NODES, _WEIGHTS)
 
-    @pytest.mark.parametrize("order", [2, 5, 12, 20])
-    def test_nodes_are_symmetric_and_inside_the_interval(self, order: int) -> None:
-        nodes, _ = _gauss_legendre(order)
-        ordered = sorted(nodes)
-        assert all(-1.0 < x < 1.0 for x in ordered)
-        for low, high in zip(ordered, reversed(ordered), strict=True):
-            assert low == pytest.approx(-high, abs=1e-14)
-
-    @pytest.mark.parametrize("order", [2, 5, 12, 20])
-    def test_integrates_polynomials_exactly_to_the_expected_degree(self, order: int) -> None:
-        """Exact to degree 2n - 1, and only to there.
-
-        The second half matters as much as the first: a rule that was somehow
-        exact beyond its degree would not be a Gauss rule, and the failure at
-        degree 2n is what shows the nodes are where they should be rather than
-        merely in a plausible place.
-        """
-        nodes, weights = _gauss_legendre(order)
-        for degree in range(2 * order):
-            quadrature = math.fsum(w * x**degree for x, w in zip(nodes, weights, strict=True))
+    def test_the_rule_at_that_order_is_exact_to_its_full_degree(self) -> None:
+        for degree in range(2 * _ORDER):
+            got = math.fsum(w * x**degree for x, w in zip(_NODES, _WEIGHTS, strict=True))
             exact = 0.0 if degree % 2 else 2.0 / (degree + 1)
-            assert quadrature == pytest.approx(exact, abs=1e-12)
-
-        degree = 2 * order
-        quadrature = math.fsum(w * x**degree for x, w in zip(nodes, weights, strict=True))
-        assert quadrature != pytest.approx(2.0 / (degree + 1), abs=1e-12)
+            assert got == pytest.approx(exact, abs=1e-12)
 
 
 class TestIdentities:

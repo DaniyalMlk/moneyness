@@ -51,6 +51,7 @@ import math
 from itertools import pairwise
 
 from .normal import norm_cdf
+from .quadrature import gauss_legendre
 
 __all__ = ["norm_cdf2"]
 
@@ -63,47 +64,10 @@ _ORDER = 20
 _PANELS = 12
 
 
-def _legendre(order: int, x: float) -> tuple[float, float]:
-    """The Legendre polynomial of the given order at ``x``, and its derivative.
-
-    Built by the three-term recurrence, which is stable upwards and costs
-    nothing at these orders.
-    """
-    previous, current = 1.0, x
-    for n in range(2, order + 1):
-        previous, current = current, ((2 * n - 1) * x * current - (n - 1) * previous) / n
-    derivative = order * (x * current - previous) / (x * x - 1.0)
-    return current, derivative
-
-
-def _gauss_legendre(order: int) -> tuple[tuple[float, ...], tuple[float, ...]]:
-    """Nodes and weights for the Gauss-Legendre rule of the given order on [-1, 1].
-
-    Computed rather than transcribed. A table of twenty nodes to sixteen digits
-    is forty numbers that all look equally plausible, and a single wrong digit
-    produces a rule that is slightly wrong everywhere — accurate enough to look
-    fine and never exactly right. Newton's method on the Legendre polynomial,
-    started from the standard Chebyshev-like approximation, converges in three
-    or four iterations and is checkable by the properties the rule must satisfy,
-    which the tests assert.
-    """
-    nodes: list[float] = []
-    weights: list[float] = []
-    for i in range(1, order + 1):
-        x = math.cos(math.pi * (i - 0.25) / (order + 0.5))
-        for _ in range(100):
-            value, derivative = _legendre(order, x)
-            step = value / derivative
-            x -= step
-            if abs(step) < 1e-16:
-                break
-        _, derivative = _legendre(order, x)
-        nodes.append(x)
-        weights.append(2.0 / ((1.0 - x * x) * derivative * derivative))
-    return tuple(nodes), tuple(weights)
-
-
-_NODES, _WEIGHTS = _gauss_legendre(_ORDER)
+# Shared with the transform pricing in ``moneyness.quadrature``, which needs
+# the same rule at a different order. Two copies of a node generator is two
+# places for a rule to be subtly wrong, and only one of them would be noticed.
+_NODES, _WEIGHTS = gauss_legendre(_ORDER)
 
 
 def _panel_edges(upper: float) -> list[float]:
