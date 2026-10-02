@@ -705,3 +705,175 @@ def test_heston_path_reports_a_bad_parameter_as_an_exit_status(
     args[args.index("--rho") + 1] = "-2"
     assert main(args) == 1
     assert "rho must be in" in capsys.readouterr().err
+
+
+VARIANCE_ARGS = ["variance", "--forward", "102.37", "--time", "1.0", "--rate", "0.03"]
+
+
+def test_variance_recovers_a_flat_volatility(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main([*VARIANCE_ARGS, "--vol", "0.2", "--width", "2.0"]) == 0
+    out = capsys.readouterr().out
+    assert "continuous replication" in out
+    fair = float(out.split("fair variance  ")[1].split()[0])
+    assert fair == pytest.approx(0.04, rel=1e-12)
+    # The exact answer and the error against it are both printed, which is the
+    # point of offering a flat volatility as a source at all.
+    assert "exact answer   0.0400000000" in out
+    error = float(out.split("relative error ")[1].split()[0])
+    assert abs(error) < 1e-13
+
+
+def test_variance_prints_the_truncation_prediction(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main([*VARIANCE_ARGS, "--vol", "0.2", "--width", "0.3"]) == 0
+    out = capsys.readouterr().out
+    predicted = float(out.split("predicted truncation ")[1].split()[0])
+    measured = float(out.split("relative error ")[1].split()[0]) * 0.04
+    assert predicted < 0.0
+    # Both are printed to four significant figures, so that is as closely as
+    # they can be compared through the output; the tight comparison lives in
+    # the unit tests.
+    assert measured == pytest.approx(predicted, rel=1e-3)
+
+
+def test_variance_tabulates_the_three_centrings(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main([*VARIANCE_ARGS, "--vol", "0.2", "--width", "2.0", "--step", "5.0"]) == 0
+    out = capsys.readouterr().out
+    assert "listed strip of" in out
+    values = {}
+    for line in out.split("listed strip")[1].splitlines():
+        fields = line.split()
+        if len(fields) >= 3 and fields[0] in {"none", "quadratic", "exact"}:
+            values[fields[0]] = float(fields[1])
+    assert set(values) == {"none", "quadratic", "exact"}
+    # The split strike is 100 against a forward of 102.37, so the uncorrected
+    # sum is the highest of the three and both corrections pull it down.
+    assert values["none"] > values["quadratic"]
+    assert values["none"] > values["exact"]
+    assert "split strike   100.000000" in out
+
+
+def test_variance_under_heston_matches_the_closed_form(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        main(
+            [
+                "variance", "--forward", "100", "--time", "1.0", "--rate", "0.02",
+                "--heston", "--v0", "0.09", "--kappa", "2.0", "--theta", "0.04",
+                "--sigma", "0.8", "--rho", "-0.5", "--width", "6.0", "--tol", "1e-12",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    error = float(out.split("relative error ")[1].split()[0])
+    assert abs(error) < 1e-7
+    # The volatility swap block reports a strike strictly below the square root
+    # of the fair variance, and says that the correction is too large.
+    assert "volatility swap" in out
+    root = float(out.split("root of variance ")[1].split()[0].rstrip("%"))
+    second = float(out.split("second-order     ")[1].split()[0].rstrip("%"))
+    assert 0.0 < second < root
+    assert "too large" in out
+
+
+def test_variance_reads_a_quote_file(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    forward, time, rate, vol = 99.5, 0.5, 0.01, 0.25
+    strikes = [60.0 + 5.0 * index for index in range(21)]
+    reference = max(k for k in strikes if k <= forward)
+    rows = ["# out-of-the-money prices", "strike,price"]
+    for strike in strikes:
+        put = price(Inputs.on_future(forward, strike, time, rate, vol), OptionType.PUT)
+        call = price(Inputs.on_future(forward, strike, time, rate, vol), OptionType.CALL)
+        if strike < reference:
+            quote = put
+        elif strike > reference:
+            quote = call
+        else:
+            quote = 0.5 * (put + call)
+        rows.append(f"{strike},{quote:.12f}")
+    source = tmp_path / "quotes.csv"
+    source.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    assert main(
+        ["variance", "--forward", "99.5", "--time", "0.5", "--rate", "0.01",
+         "--quotes", str(source)]
+    ) == 0
+    out = capsys.readouterr().out
+    assert "listed strip of 21 strikes" in out
+    # No exact answer is known for a quote file, so no error column is printed.
+    assert "exact answer" not in out
+    assert "error" not in out.split("listed strip")[1]
+
+
+def test_variance_reads_quotes_from_standard_input(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rows = "strike,price\n80,0.4\n90,1.2\n100,3.0\n110,1.1\n120,0.3\n"
+    monkeypatch.setattr("sys.stdin", io.StringIO(rows))
+    assert main(["variance", "--forward", "102", "--time", "1.0", "--quotes", "-"]) == 0
+    assert "listed strip of 5 strikes" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ([], "exactly one of"),
+        (["--vol", "0.2", "--heston"], "exactly one of"),
+        (["--vol", "-0.2"], "--vol must be positive"),
+        (["--vol", "0.2", "--width", "0"], "--width must be positive"),
+        (["--vol", "0.2", "--step", "0"], "--step must be positive"),
+        (["--heston", "--v0", "0.04"], "--heston needs --kappa"),
+    ],
+)
+def test_variance_refuses_bad_arguments(extra: list[str], message: str) -> None:
+    with pytest.raises(SystemExit, match=message):
+        main([*VARIANCE_ARGS, *extra])
+
+
+@pytest.mark.parametrize(
+    ("time", "forward", "message"),
+    [("0", "100", "--time must be positive"), ("1", "0", "--forward must be positive")],
+)
+def test_variance_refuses_a_bad_market(time: str, forward: str, message: str) -> None:
+    with pytest.raises(SystemExit, match=message):
+        main(["variance", "--forward", forward, "--time", time, "--vol", "0.2"])
+
+
+def test_variance_refuses_a_strip_that_misses_the_forward(
+    tmp_path: pathlib.Path,
+) -> None:
+    source = tmp_path / "high.csv"
+    source.write_text("strike,price\n110,1.0\n120,0.5\n130,0.2\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="bracket the forward"):
+        main(["variance", "--forward", "100", "--time", "1", "--quotes", str(source)])
+
+
+def test_variance_reports_a_missing_quote_file() -> None:
+    with pytest.raises(SystemExit, match="cannot read"):
+        main(["variance", "--forward", "100", "--time", "1", "--quotes", "nowhere.csv"])
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        ("strike\n100\n110\n", "expected strike and price"),
+        ("strike,price\n-5,1.0\n100,2.0\n110,1.0\n", "is not positive"),
+        ("strike,price\n90,1.0\n100,-2.0\n110,1.0\n", "is negative"),
+        ("strike,price\n90,1.0\nbad,rows\n", "are not two numbers"),
+        ("# only a comment\n", "no quotes found"),
+    ],
+)
+def test_variance_reports_a_malformed_quote_row(
+    tmp_path: pathlib.Path, rows: str, message: str
+) -> None:
+    source = tmp_path / "rows.csv"
+    source.write_text(rows, encoding="utf-8")
+    with pytest.raises(SystemExit, match=message):
+        main(["variance", "--forward", "100", "--time", "1", "--quotes", str(source)])
