@@ -46,9 +46,17 @@ from .heston import price as heston_price
 from .heston_mc import asian as heston_asian
 from .heston_mc import barrier as heston_barrier
 from .heston_mc import european as heston_european
-from .implied import Method, Quote, bounds, solve
+from .implied import Method, Quote, black, bounds, solve
 from .lattice import Exercise, Lattice, boundary, min_steps, price_lattice, richardson
 from .monte_carlo import Barrier, Settings
+from .sabr import (
+    SabrParameters,
+    bachelier,
+    density,
+    density_floor,
+    lognormal_volatility,
+    normal_volatility,
+)
 from .surface import Surface
 from .svi import SVI, Butterfly, calibrate
 
@@ -461,6 +469,89 @@ def _run_american(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_sabr(args: argparse.Namespace) -> int:
+    """A SABR ladder, both volatility conventions, and the density.
+
+    The two volatility columns are not conversions of one another: they are
+    separate second-order expansions in the same small parameter, so the prices
+    they imply differ by the expansion's own error -- which the price columns
+    make visible rather than hiding behind a single number.
+    """
+    if args.steps < 1:
+        raise SystemExit("--steps must be at least 1")
+    if args.high < args.low:
+        raise SystemExit("--high must not be below --low")
+    try:
+        parameters = SabrParameters(
+            alpha=args.alpha, beta=args.beta, rho=args.rho, nu=args.nu
+        )
+    except ValueError as bad:
+        raise SystemExit(str(bad)) from bad
+
+    shift = args.shift
+    fwd = args.forward + shift if shift is not None else args.forward
+    if fwd <= 0.0:
+        raise SystemExit(
+            f"the forward is {fwd}, which the lognormal formula has no value "
+            "at; pass --shift to displace it"
+        )
+    root = math.sqrt(args.time)
+    step = (args.high - args.low) / max(args.steps - 1, 1)
+    strikes = [args.low + index * step for index in range(args.steps)]
+
+    at_the_money = normal_volatility(parameters, fwd, fwd, args.time) * root
+    print(f"forward            {fwd:.6f}" + (f" (shifted by {shift})" if shift else ""))
+    print(f"at-the-money sd    {at_the_money:.8f}")
+    print(f"backbone exponent  {parameters.beta}")
+    if parameters.is_lognormal:
+        print("this is Black exactly: no vol of vol and a unit exponent")
+    if parameters.is_normal:
+        print("this is Bachelier exactly: no vol of vol and a zero exponent")
+    print()
+    header = (
+        f"{'strike':>10} {'lognormal':>12} {'normal':>12} {'black':>14} "
+        f"{'bachelier':>14} {'density':>12}"
+    )
+    print(header)
+    print("-" * len(header))
+    for strike in strikes:
+        shifted = strike + shift if shift is not None else strike
+        if shifted <= 0.0:
+            print(f"{strike:>10.6f}   (strike not positive after the shift)")
+            continue
+        lognormal = lognormal_volatility(parameters, fwd, shifted, args.time)
+        normal = normal_volatility(parameters, fwd, shifted, args.time)
+        option = OptionType.PUT if shifted < fwd else OptionType.CALL
+        from_black = black(fwd, shifted, lognormal * root, option)
+        from_normal = bachelier(fwd, shifted, normal * root, option)
+        here = density(parameters, fwd, shifted, args.time)
+        print(
+            f"{strike:>10.6f} {lognormal:>12.6%} {normal:>12.8f} "
+            f"{from_black:>14.10f} {from_normal:>14.10f} {here:>12.4f}"
+        )
+    if args.floor:
+        print()
+        found = density_floor(parameters, fwd, args.time, lower=1e-4 * fwd)
+        if found is None:
+            print(
+                "the density stays non-negative down to 1e-04 of the forward, which "
+                "is a search that found nothing rather than a certificate"
+            )
+        else:
+            deviations = (fwd - found) / at_the_money
+            inside = density(parameters, fwd, 0.9 * found, args.time, step=1e-4 * found)
+            print(
+                f"the density turns negative below {found:.6f}, which is "
+                f"{deviations:.2f} at-the-money standard deviations below the "
+                f"forward; ten per cent further down it is {inside:.4f}"
+            )
+            print(
+                "the value at the boundary itself is a bisected zero and is "
+                "rounding, so the magnitude is read inside the region"
+            )
+    return 0
+
+
 def _run_heston(args: argparse.Namespace) -> int:
     """A strike ladder under stochastic volatility, read back as a smile.
 
@@ -721,6 +812,51 @@ def _parser() -> argparse.ArgumentParser:
         help="also report how far the two pricing routes disagree",
     )
     heston_parser.set_defaults(handler=_run_heston)
+
+    sabr_parser = sub.add_parser(
+        "sabr",
+        help="a SABR smile, and where it stops being a distribution",
+        description=(
+            "Reports Hagan's lognormal and normal volatilities across a strike "
+            "ladder, the price each implies, and the risk-neutral density the "
+            "smile carries. The density column is the point: Hagan's formula is "
+            "an expansion rather than a price, so nothing makes it convex in the "
+            "strike, and --floor finds the highest strike below the forward where "
+            "it has turned negative. Short-dated smiles are distributions; long "
+            "ones are not, and the boundary can come within a standard deviation "
+            "of the forward at ten years."
+        ),
+    )
+    sabr_parser.add_argument("--forward", type=float, required=True)
+    sabr_parser.add_argument("--time", type=float, required=True)
+    sabr_parser.add_argument("--alpha", type=float, required=True, help="volatility now")
+    sabr_parser.add_argument(
+        "--beta", type=float, default=0.5, help="backbone exponent, in [0, 1]"
+    )
+    sabr_parser.add_argument(
+        "--rho", type=float, required=True, help="forward/volatility correlation"
+    )
+    sabr_parser.add_argument(
+        "--nu", type=float, required=True, help="volatility of volatility"
+    )
+    sabr_parser.add_argument("--low", type=float, required=True, help="lowest strike")
+    sabr_parser.add_argument("--high", type=float, required=True, help="highest strike")
+    sabr_parser.add_argument("--steps", type=int, default=9, help="number of strikes")
+    sabr_parser.add_argument(
+        "--shift",
+        type=float,
+        default=None,
+        help=(
+            "displace the forward and every strike by this much, which is how a "
+            "negative-rate market quotes SABR"
+        ),
+    )
+    sabr_parser.add_argument(
+        "--floor",
+        action="store_true",
+        help="also search for where the implied density turns negative",
+    )
+    sabr_parser.set_defaults(handler=_run_sabr)
 
     path_parser = sub.add_parser(
         "heston-path",

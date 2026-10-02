@@ -125,3 +125,89 @@ an independent method that should agree to a stated tolerance.
 - [x] The naive alternative implemented and measured rather than dismissed
 - [x] Simulated payoffs from the command line, reporting the gap to the
       transform in standard errors where a transform price exists
+
+## Phase 11 — SABR, and where its formula stops being a price
+
+- [x] The four parameters, each with the constraint it actually has, and a
+      correlation of one refused because `x(z)` divides by `1 - rho`
+- [x] Hagan's lognormal volatility, with the `z / x(z)` factor taken from its
+      series where the ratio has lost its digits
+- [x] Hagan's normal volatility as its own expansion rather than a conversion
+      of the first
+- [x] The displaced variant, for the markets whose forwards are negative
+- [x] A Bachelier price, its vega and its inversion, which this package had
+      none of
+- [x] Calibration of `rho` and `nu` with `alpha` solved from the quote nearest
+      the money, so every candidate fits that quote by construction
+- [x] The risk-neutral density the smile carries, and a search for where it
+      turns negative
+- [x] A command-line entry point reporting both conventions, the price each
+      implies, and the density
+
+The limits are the whole test strategy, because an asymptotic expansion has
+nothing exact to be compared against. Three of them are closed forms sharing no
+code with the formula. At `nu = 0` and `beta = 1` the implied volatility is
+`alpha` — exactly, measured gap 0.0, because every correction term carries a
+factor of `nu` or `(1 - beta)`. At `nu = 0` and `beta = 0` the normal volatility
+is `alpha` with the same exactness, which depends on its two moneyness brackets
+coinciding at a zero exponent. At `nu = 0` with a general exponent the model is
+CEV and the formula is *approximate* — and wrong by the amount its own next term
+predicts: at a 2% forward and a 3% strike the gap is 1.704e-03 of the volatility
+against the `(1-beta)^2 log^2(F/K) / 24` the expansion carries, which is
+1.713e-03.
+
+The two conventions have to price the same option, and how closely depends on
+the maturity. They are separate second-order expansions in one small parameter,
+not two writings of one expression, so measured two standard deviations out the
+gap is 0.0009% of the option's value at a quarter of a year, 0.0081% at one year
+and 0.1154% at five. Convertible at the short end, not at the long one.
+
+`beta` is not identifiable from one smile, so it is an argument. Fitting the
+same five quotes at four exponents moves `alpha` by a factor of 15.5 — 0.001828
+at 0.3 against 0.028328 at 1.0 — and `rho` from -0.263 to -0.389, while the
+fitted smile moves by at most 6.1 basis points of volatility.
+
+Two defects in the code, and the second one invalidated a finished measurement.
+
+The `z / x(z)` series had the sign of its linear term wrong. The expansion is
+`1 - rho z / 2 + ...` and a plus leaves it wrong by `rho z`, which is 3e-03 at a
+`z` of 1e-02 — so the series never beat the ratio at any threshold, and that
+reads as a badly chosen threshold rather than as a sign error. With the sign
+right the two cross at `|z|` of about 2e-04 where each is wrong by around 5e-13,
+and below that the ratio's cancellation takes over entirely: 8.3e-08 wrong at
+1e-10 and 8.9e-05 at 1e-12, however small `z` gets.
+
+And the density was being differenced from *call* prices. Below the forward a
+call is intrinsic plus a whisper: at a 1% strike against a 2% forward it is
+0.0094, four of its last bits divided by a squared step of 1e-06 is 6e-06, and
+the density there is smaller than that. That produced a confident "negative
+density below 1.0649%, sixteen standard deviations out, nine orders of magnitude
+down the tail" — written up, measured across four parameter sets, and rounding
+in its entirety. Pricing the out-of-the-money option instead, put-call parity
+being linear in the strike so the two second differences agree in exact
+arithmetic and only one of them in double precision, the finding inverts:
+
+* No one-year smile tested has a negative density at all down to 1e-04 of the
+  forward, at any vol-of-vol up to 1.2 and any correlation.
+* The defect needs maturity or vol-of-vol. Over five `nu`, four `rho` and four
+  maturities, 61 of 80 combinations have one and all 19 that do not are
+  short-dated.
+* Where it appears it is not a tail curiosity. At `nu` 0.8, `rho` -0.3 and ten
+  years it is negative below 1.7935%, which is 0.795 standard deviations below
+  the forward, and ten per cent further down it is -7.118 against a peak of
+  749.7 — nearly a per cent of the peak, stable to four digits across three
+  decades of differencing step.
+* It is on both wings at ten years, not only the low one: -1.61 at a 2.67%
+  strike. `density_floor` searches downwards only, which its name says.
+
+So a short-dated SABR smile is a distribution and a long-dated one is not, which
+is a more useful statement than either "the formula is fine" or "the formula
+admits arbitrage".
+
+Three defects in the tests. The `z / x(z)` series error was bounded linearly
+where it is cubic. The at-the-money continuity test was written at offsets where
+the smile's own skew moves the volatility by more than the tolerance, which is
+the skew working rather than a discontinuity. And the one-year high wing was read
+off a column printed to six decimals as `0.000000` and asserted to be exactly
+zero; it is 4.2e-10 and perfectly well resolved, which is the same lesson as the
+density defect in a smaller form.

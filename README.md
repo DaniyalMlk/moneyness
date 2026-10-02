@@ -571,6 +571,93 @@ exactly zero the increment is not random at all, the substitution does not
 exist, and the correlated fraction has to be put back by hand. The limit is
 discontinuous in the decomposition though not in the law.
 
+## A twelfth decision: difference the cheap option, not the dear one
+
+SABR is the smile the interest rate and commodity markets actually quote — four
+parameters per expiry, turned into volatilities by Hagan's asymptotic expansion.
+`moneyness.sabr` has both of its forms, the displaced variant for negative
+forwards, and the Bachelier pricer this package previously had no equivalent of.
+
+```
+$ moneyness sabr --forward 0.02 --time 10 --alpha 0.004 --beta 0.5 \
+      --rho -0.3 --nu 0.8 --low 0.01 --high 0.035 --steps 7 --floor
+forward            0.020000
+at-the-money sd    0.00259849
+backbone exponent  0.5
+
+    strike    lognormal       normal          black      bachelier      density
+-------------------------------------------------------------------------------
+  0.010000   24.623602%   0.00355128   0.0010752317   0.0011477077      -7.5881
+  0.014167   15.054426%   0.00254592   0.0010808367   0.0011032233      -6.6868
+  0.018333    6.941488%   0.00132929   0.0009710369   0.0009737722       9.5840
+  0.022500    6.184832%   0.00131248   0.0006954914   0.0006973904      11.4515
+  0.026667   10.489246%   0.00243027   0.0008097671   0.0008189376      -1.6095
+  ...
+
+the density turns negative below 0.017935, which is 0.79 at-the-money standard
+deviations below the forward; ten per cent further down it is -7.1184
+```
+
+Three of the degenerate limits are closed forms sharing no code with the
+expansion, and they are what the rest rests on. No vol-of-vol with a unit
+exponent is Black **exactly** — measured gap 0.0, because every correction term
+carries a factor of `nu` or `1 - beta`. No vol-of-vol with a zero exponent is
+Bachelier exactly. No vol-of-vol with a general exponent is CEV, where the
+formula is *approximate* and wrong by the amount its own next term predicts:
+1.704e-03 measured against the 1.713e-03 the `(1-beta)²log²(F/K)/24` term
+carries.
+
+### The decision in the heading
+
+The density column above is the second derivative of an option price in the
+strike, and the first version of it was differenced from **call** prices
+throughout. That is catastrophic cancellation below the forward. A call at a 1%
+strike against a 2% forward is worth 0.0094; its last bit is 1.7e-18; four of
+those divided by a squared step of 1e-06 is 6e-06 of pure noise — and the
+density down there is smaller than that.
+
+The result was a confident, written-up, four-parameter-set finding: *"the
+density turns negative below 1.0649%, sixteen standard deviations below the
+forward, where it is nine orders of magnitude below its peak — so the defect is
+real, always there, and harmless."* Every number in that sentence was rounding.
+
+Pricing the **out-of-the-money** option instead costs nothing — put-call parity
+is linear in the strike, so the two second differences are the same number in
+exact arithmetic and only one of them is in double precision — and the finding
+inverts:
+
+- No one-year smile tested has a negative density **at all** down to 1e-04 of
+  the forward, at any vol-of-vol up to 1.2 and any correlation.
+- The defect needs maturity or vol-of-vol: across five `nu`, four `rho` and four
+  maturities, 61 of 80 combinations have one, and all 19 that do not are
+  short-dated.
+- Where it appears it is not a tail curiosity. At ten years it is negative
+  **0.795 standard deviations** below the forward — inside the range anyone
+  quotes — reaching **-7.118** against a peak of 749.7, which is stable to four
+  digits across three decades of differencing step. At thirty years the boundary
+  reaches 0.15 standard deviations.
+- And it is on both wings at ten years, not only the low one: -1.61 at a 2.67%
+  strike. `density_floor` searches downwards only, which its name says.
+
+So a short-dated SABR smile is a distribution and a long-dated one is not. That
+is a more useful statement than "the formula admits arbitrage", and it was only
+available after the arithmetic stopped being dominated by its own rounding.
+
+### Two more things worth stating
+
+The `z / x(z)` factor is zero over zero at the money, and its series is
+`1 - rho z/2 + (2 - 3rho²)z²/12`. The **minus** is not a detail: a plus leaves
+the series wrong by `rho z`, 3e-03 at a `z` of 1e-02, so it never beats the
+ratio at any threshold — which reads as a badly tuned threshold rather than as a
+sign error. With the sign right they cross at `|z| ≈ 2e-04` where each is wrong
+by about 5e-13, and below that the ratio is wrong by 8.3e-08 at 1e-10 and
+8.9e-05 at 1e-12, however small `z` gets.
+
+And `beta` is an argument rather than a fitted parameter because a single smile
+carries no information about it. Fitting the same five quotes at four exponents
+moves `alpha` by a factor of 15.5 and `rho` from -0.263 to -0.389, while the
+fitted smile moves by at most **6.1 basis points of volatility**.
+
 ## Running the tests
 
 ```bash
