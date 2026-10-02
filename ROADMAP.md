@@ -211,3 +211,109 @@ the skew working rather than a discontinuity. And the one-year high wing was rea
 off a column printed to six decimals as `0.000000` and asserted to be exactly
 zero; it is 4.2e-10 and perfectly well resolved, which is the same lesson as the
 density defect in a smaller form.
+
+## Phase 12 — Variance and volatility swaps
+
+- [x] Fair variance by static replication of the log contract, integrated in
+      log-moneyness so both wings are one integrand
+- [x] The two exact targets: `sigma^2` under a flat smile and
+      `E[int V]/T` under Heston, both reproduced from prices alone
+- [x] The cost of a finite strike range in closed form, so a quote ladder can
+      be judged before it is trusted
+- [x] The discrete sum a desk runs, with the centring term the split at a
+      listed strike introduces, exactly rather than to leading order
+- [x] The variance of integrated variance for the square-root process, and the
+      volatility swap strike it implies
+- [x] A command-line entry point over a flat volatility, a Heston model and a
+      file of quotes
+
+The replication is model-free, which means for once there are answers known in
+advance rather than only answers to compare against each other. A flat
+Black-Scholes smile must give back `sigma^2`, and it does, to two or three
+units in the last place across twelve volatility and maturity pairs. A Heston
+smile must give back `E[int V]/T`, which the model already supplies in closed
+form, and it does to 1e-8 relative once the strikes reach far enough.
+
+**That qualification is the finding.** The natural rule for how far is a few
+standard deviations of log-moneyness, and under a flat smile it is right: five
+leaves 4.4e-08 relative and six leaves 1.2e-10. Under Heston at the same
+equivalent volatility it is not close. At a vol-of-vol of 0.3, ten standard
+deviations leaves 5.7e-07; at 0.5, 5.3e-05; at 0.8, **1.3e-03** — and reaching
+1e-09 there takes thirty, which is log-moneyness of six, or strikes from a
+quarter of a per cent of the forward to four hundred times it. The log-contract
+weight is `1/K^2`, which is exactly the weight that keeps a fat tail relevant,
+and stochastic volatility supplies one. So the width is an argument and the
+truncation is reported.
+
+It is reported in closed form, and the closed form is the useful kind. Beyond
+the last strike the replicating portfolio stops paying
+`g(S) = -log(S/F) + S/F - 1` and pays the *tangent* to it, because there is
+nothing further out to buy, so the error is the expected excess of `g` over
+that tangent — an elementary lognormal expectation. Against the measurement it
+is right to 1e-14 relative at one standard deviation and 2e-11 at four. At
+equal log-distance the put wing is the dearer one to lose: 1.32 times at one
+standard deviation and 2.32 at four, so a desk one strike short should buy the
+low one.
+
+**The market's centring correction is the leading term of an exact
+expression.** Splitting puts from calls at `K0`, the largest listed strike at
+or below the forward, replicates the log contract centred on `K0` rather than
+on the forward, and the identity says precisely what that costs:
+`2 (F/K0 - 1 - log(F/K0)) / T`. The convention subtracts `(F/K0 - 1)^2 / T`,
+which is its first term and overstates it by 0.67% at a one per cent gap, 6.6%
+at ten per cent and 32% at a half. Either one restores second-order convergence
+in the strike spacing — halving ratios of 4.00 from a spacing of 2.0 down —
+against an uncorrected sum whose ratios are 6.64, 10.71, 2.65, 1.71, 7.23 and
+1.46, because its error is set by where the forward happens to fall relative to
+the lattice rather than by the spacing. At a coarse lattice the discretisation
+error is larger than the difference between the two corrections and can cancel
+against it, so the exact form being exact does not make it the better estimate
+until the spacing is fine.
+
+**A volatility swap is not the square root of a variance swap, and the usual
+correction overshoots.** The second-order expansion needs the variance of
+integrated variance, which follows from `Cov(V_s, V_t) = e^{-kappa(t-s)}
+Var(V_s)` integrated twice over the triangle; it agrees with an independent
+double quadrature of that same covariance to 1e-14 relative, and collapses to
+the stationary form at `v0 = theta`. Against 60,000 simulated paths at one
+year the predicted discount is 0.0195 in volatility against 0.0153 realised at
+a vol-of-vol of 0.5, 0.0343 against 0.0245 at 0.8 and 0.0142 against 0.0114 at
+0.3 — ratios of 1.27, 1.40 and 1.25, and 13, 22 and 12 standard errors of the
+simulation. Right sign, a quarter to a half too large.
+
+Three defects, and all three were in what was asserted rather than in what was
+computed.
+
+The unbounded version came first and does not work, for a reason that belongs
+to the price function rather than to the quadrature. A transform price has an
+*absolute* accuracy floor: asking for 1e-13 returns 1.48e-12 at log-moneyness 2
+and 3.02e-12 at 5, which is not even monotone, and 1.381e-03 at 40 where the
+true price is zero to hundreds of digits, while the cost per evaluation rises
+from 2.3ms to 34ms. Dividing by the strike makes all of that harmless to the
+integral — 1.4e-03 over 2.4e+17 is 6e-21 — but a walk looking for a panel that
+contributes nothing is looking for a property the integrand does not have, and
+it did not terminate in minutes.
+
+The flat-smile test was written at a fixed width in log-moneyness, which is the
+wrong unit: a flat 20% at a quarter of a year and a flat 80% at five years
+differ by a factor of eighteen in how far the strikes must reach, so five of
+twelve cases were failing on truncation and reading as a broken replication.
+The quadrature tolerance has the same problem in reverse, being absolute
+against an integral of `sigma^2 T / 2` that spans four orders of magnitude over
+the same grid.
+
+And truncation was asserted to be monotone in the width everywhere, which is
+true only while truncation is resolved. At a quarter of a year, four units of
+log-moneyness is already ample, both numbers sit at the rounding floor, and
+neither the ordering nor the sign means anything there — so the test now names
+the floor and asserts the monotonicity above it. The same lesson in the other
+direction: the truncation prediction cannot be checked past six standard
+deviations, where the thing predicted is 4.6e-12 against a fair variance of
+0.04.
+
+One more worth recording, because it wasted a measurement. A simulation study
+that reuses one seed across every row makes that draw's sampling error look
+like a systematic bias: the first attempt at the integrated-variance variance
+showed the mean 0.5% high and the variance 1% high in all nine rows, uniformly
+enough to read as a scheme defect. With independent seeds the same code agrees
+to within 1.5 standard errors.

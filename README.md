@@ -95,6 +95,24 @@ contract = Contract(spot=100.0, strike=100.0, time=1.0, rate=0.0, carry=0.0)
 # [(80, 0.228815...), (100, 0.174341...), (125, 0.151918...)]
 ```
 
+A variance swap's fair strike, replicated out of the same model's prices and
+checked against the closed form it has to agree with:
+
+```python
+from moneyness import Contract, Heston, OptionType, fair_variance
+from moneyness.heston import price
+
+model = Heston(v0=0.04, kappa=1.5, theta=0.04, sigma=0.5, rho=-0.7)
+
+def otm(strike: float) -> float:
+    side = OptionType.CALL if strike >= 100.0 else OptionType.PUT
+    return price(model, Contract(100.0, strike, 1.0, 0.0, 0.0), side)
+
+result = fair_variance(otm, forward=100.0, time=1.0, discount=1.0, width=5.0)
+result.fair_variance                              # 0.039999999999068...
+model.expected_integrated_variance(1.0) / 1.0     # 0.04 exactly
+```
+
 ## The decision that mattered
 
 The tests check the library against `mpmath` evaluating the same mathematics at
@@ -658,6 +676,88 @@ carries no information about it. Fitting the same five quotes at four exponents
 moves `alpha` by a factor of 15.5 and `rho` from -0.263 to -0.389, while the
 fitted smile moves by at most **6.1 basis points of volatility**.
 
+## A thirteenth decision: report the truncation, do not pick a width
+
+A variance swap's fair strike is the one number in this package that needs no
+model at all. The identity
+
+```
+-log(S/F) + S/F - 1 = ∫₀^F (K-S)⁺/K² dK + ∫_F^∞ (S-K)⁺/K² dK
+```
+
+holds pointwise, so its expectation turns realised variance into a portfolio of
+the options already quoted. `fair_variance` integrates that in log-moneyness,
+where both wings are the same integrand.
+
+Being model-free means there are answers known in advance. A flat smile must
+give back `sigma²`, and does, to two or three units in the last place. A Heston
+smile must give back `E[∫V]/T`, which `Heston.expected_integrated_variance`
+already supplies, and does to 1e-8 relative — **once the strikes reach far
+enough**, which is the whole of the difficulty.
+
+The rule of thumb is a few standard deviations of log-moneyness, and under a
+flat smile it holds: five leaves 4.4e-08 relative. Under Heston at the same
+equivalent volatility it does not. Ten standard deviations leaves 5.7e-07 at a
+vol-of-vol of 0.3, 5.3e-05 at 0.5 and **1.3e-03** at 0.8; reaching 1e-09 at 0.8
+takes thirty, which is strikes from a quarter of a per cent of the forward to
+four hundred times it. The `1/K²` weight is exactly the weight that keeps a fat
+tail relevant.
+
+So the width is an argument, and `truncation_error` says in closed form what it
+costs. Beyond the last strike the portfolio pays the *tangent* to the log
+payoff rather than the payoff, because there is nothing further out to buy, so
+the error is the expected excess of one over the other — right to 1e-14
+relative against the measurement at one standard deviation. At equal
+log-distance the put wing is 1.32 times dearer to lose at one standard
+deviation and 2.32 times at four, so a desk one strike short should buy the low
+one.
+
+The unbounded version was tried first and does not work, for a reason that
+belongs to the prices rather than to the quadrature. A transform price has an
+absolute floor: asking for 1e-13 returns 1.48e-12 at log-moneyness 2 and
+3.02e-12 at 5 — not monotone — and 1.381e-03 at 40, where the true price is
+zero to hundreds of digits. Dividing by the strike makes it harmless to the
+integral, but a walk looking for a panel that contributes nothing is looking
+for a property the integrand does not have.
+
+### The centring term, exactly
+
+A desk sums over listed strikes and splits puts from calls at `K0`, the largest
+listed strike at or below the forward. That replicates the log contract centred
+on `K0`, and the identity says what it costs:
+
+```
+2 (F/K0 - 1 - log(F/K0)) / T
+```
+
+The market convention subtracts `(F/K0 - 1)² / T`, the first term of that. It
+overstates the true correction by 0.67% at a one per cent gap, 6.6% at ten per
+cent and 32% at a half. `Centring` offers both, and either restores
+second-order convergence in the strike spacing — halving ratios of 4.00 —
+against an uncorrected sum whose ratios run 6.64, 10.71, 2.65, 1.71, 7.23 and
+1.46, because its error is set by where the forward falls on the lattice rather
+than by the spacing.
+
+### And a volatility swap is not its square root
+
+`integrated_variance_variance` gives `Var(∫V)` in closed form for the
+square-root process, from `Cov(V_s, V_t) = e^{-κ(t-s)} Var(V_s)` integrated
+twice; it agrees with an independent double quadrature of the same covariance
+to 1e-14. `volatility_swap_strike` turns that into the second-order fair
+volatility — and the docstring says what the measurement says, which is that
+the correction has the right sign and is a quarter to a half too large. Against
+60,000 simulated paths the predicted discount is 0.0195 in volatility against
+0.0153 realised at a vol-of-vol of 0.5 and 0.0343 against 0.0245 at 0.8: 13 and
+22 standard errors, so not sampling noise.
+
+```bash
+moneyness variance --forward 102.37 --time 1 --rate 0.03 --vol 0.2 \
+  --width 2 --step 5
+```
+
+prints the continuous replication with its exact answer and predicted
+truncation, then the listed-strip sum at all three centrings side by side.
+
 ## Running the tests
 
 ```bash
@@ -703,6 +803,16 @@ Phase 10 simulates the model rather than transforming it: Andersen's
 quadratic-exponential scheme, Asian and barrier payoffs under stochastic
 volatility, and an independent check on the transform that shares no code
 with it.
+
+Phase 11 adds SABR: both of Hagan's expansions, the displaced variant, a
+Bachelier price the package lacked, calibration, and a search for where the
+formula's own density turns negative.
+
+Phase 12 adds variance and volatility swaps: the log-contract replication with
+its two exact targets, the closed-form cost of a finite strike range, the
+listed-strip sum with the centring term computed exactly rather than to leading
+order, and the variance of integrated variance that separates a volatility swap
+from the square root of a variance one.
 
 Every item on [the roadmap](ROADMAP.md) is now done except the first release
 on the package index, which waits on the publisher being registered there.
