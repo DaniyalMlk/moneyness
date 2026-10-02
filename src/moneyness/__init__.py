@@ -71,6 +71,26 @@ from .quadrature import (
     gauss_legendre,
     semi_infinite_quad,
 )
+
+# ``sabr.calibrate``, ``sabr.density`` and ``sabr.smile`` are deliberately not
+# re-exported here. ``svi`` already has a ``calibrate`` and a ``density`` and
+# ``heston`` already has a ``smile``, and they are different functions rather
+# than alternative spellings: SVI's density is in log-moneyness coordinates,
+# SABR's is in the strike, and flattening them into one namespace would make
+# whichever import came last silently win. They are reached as
+# ``moneyness.sabr.calibrate`` and so on.
+from .sabr import (
+    Calibration,
+    SabrParameters,
+    Smile,
+    bachelier,
+    bachelier_vega,
+    density_floor,
+    implied_normal_vol,
+    lognormal_volatility,
+    normal_volatility,
+    shifted_lognormal_volatility,
+)
 from .surface import Calendar, LocalVol, Surface
 from .svi import SVI, Butterfly, Fit, calibrate, density, durrleman
 
@@ -85,6 +105,7 @@ __all__ = [
     "Branch",
     "Butterfly",
     "Calendar",
+    "Calibration",
     "Contract",
     "Estimate",
     "Exercise",
@@ -99,14 +120,18 @@ __all__ = [
     "OptionType",
     "QuadratureError",
     "Quote",
+    "SabrParameters",
     "Scheme",
     "Settings",
+    "Smile",
     "SmilePoint",
     "Solution",
     "Surface",
     "__version__",
     "adaptive_quad",
     "asian",
+    "bachelier",
+    "bachelier_vega",
     "barrier",
     "bjerksund_stensland",
     "bjerksund_stensland_2002",
@@ -122,6 +147,7 @@ __all__ = [
     "d1_d2",
     "delta",
     "density",
+    "density_floor",
     "dual_delta",
     "dual_gamma",
     "durrleman",
@@ -133,15 +159,18 @@ __all__ = [
     "gauss_legendre",
     "geometric_asian",
     "gil_pelaez_price",
+    "implied_normal_vol",
     "implied_vol",
     "intrinsic",
     "lewis_price",
     "log_moneyness",
+    "lognormal_volatility",
     "min_steps",
     "norm_cdf",
     "norm_cdf2",
     "norm_pdf",
     "norm_ppf",
+    "normal_volatility",
     "parity_gap",
     "price",
     "price_lattice",
@@ -149,6 +178,7 @@ __all__ = [
     "rho_carry",
     "richardson",
     "semi_infinite_quad",
+    "shifted_lognormal_volatility",
     "smile",
     "solve",
     "speed",
