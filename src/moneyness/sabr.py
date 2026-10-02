@@ -55,22 +55,44 @@ is **0.0009% of the option's value at a quarter of a year, 0.0081% at one year
 and 0.1154% at five**. Close enough to convert between at short maturities and
 not at long ones, which is the sort of thing a conversion function would hide.
 
-**Where the formula stops being a price, and how far out that is.** Hagan's
-expansion is a volatility; nothing makes the resulting call prices convex in the
-strike, and they are not. Differentiating the Black price twice in strike gives
-the risk-neutral density, and :func:`density_floor` finds where it turns
-negative. On a one-year swaption smile — forward 2%, ``alpha`` 0.4%, ``beta``
-0.5, ``rho`` -0.3, ``nu`` 0.4 — it goes negative below a strike of **1.0649%**.
+**Where the formula stops being a price.** Hagan's expansion is a volatility;
+nothing makes the resulting call prices convex in the strike, and they are not.
+Differentiating twice in the strike gives the risk-neutral density, and
+:func:`density_floor` finds where it turns negative.
 
-The usual telling stops there, and the measurement is what makes it
-interesting: that strike is **16.35 at-the-money standard deviations** below the
-forward, and the density there is **1.5e-06** against 730 at the money. The
-arbitrage is real, it is always there, and it sits nine orders of magnitude down
-the tail. Across parameter sets it moves but does not come close: ``rho`` 0 with
-``nu`` 0.2 puts it at 7.80 standard deviations, ``rho`` -0.6 with ``nu`` 0.6 at
-26.73. So the defect is a reason not to extrapolate a SABR smile to an arbitrary
-strike and *not* a reason to distrust the quoted part of it, which is the
-opposite of how it is usually presented.
+Getting that measurement right took two attempts and the first one was noise.
+Differencing *call* prices below the forward is catastrophic cancellation: at a
+strike of 1% against a forward of 2% a call is worth 0.0094, its last bit is
+1.7e-18, and a second difference over a step of 1e-06 divides four of those by
+1.1e-12 and reports 6e-06 of rounding — larger than the density there. That
+produced a confident "negative density below 1.0649%, sixteen standard
+deviations out" which was an artefact in its entirety. :func:`density` now
+prices the out-of-the-money option, whose value is small and computed to full
+relative precision; put-call parity is linear in the strike, so the two second
+differences are the same number in exact arithmetic and only one of them is in
+double precision.
+
+With the arithmetic right the finding is almost the opposite. At ordinary
+one-year swaption parameters there is **no** negative density at all down to
+1e-04 of the forward — not at ``nu`` 0.4, 0.8 or 1.2, at any correlation
+tested. The defect needs maturity or vol-of-vol: over a grid of five ``nu``, four
+``rho`` and four maturities, 61 of 80 combinations have one, and all 19 that do
+not are short-dated.
+
+And where it appears it is not a tail curiosity. At ``nu`` 0.8, ``rho`` -0.3 and
+ten years the density turns negative below a strike of **1.7935%**, which is
+**0.795 standard deviations** below the forward — inside the range anyone quotes
+— and ten per cent further down it is **-7.118** against a peak of 749.7, nearly
+one per cent of the peak in magnitude and stable to five digits across four
+orders of magnitude of differencing step. At thirty years the boundary reaches
+0.152 standard deviations. So the right summary is that a short-dated SABR smile
+is a distribution and a long-dated one is not, which is more useful than either
+"the formula is fine" or "the formula admits arbitrage".
+
+One caveat on reading :func:`density_floor`: the value *at* the strike it
+returns is a bisected zero crossing, so it is rounding by construction and flips
+sign with the step size. The magnitude has to be read a little inside the
+region, which is what the tests do.
 
 **beta is not identifiable from one smile**, so :func:`calibrate` takes it and
 fits the other three. Fitting the same five quotes at four exponents moves
@@ -514,12 +536,24 @@ def density(
             "positive; pass a smaller step to look this far into the wing"
         )
     root = math.sqrt(time)
+    # Price the *out of the money* option at all three points. Put-call parity
+    # is linear in the strike, so a second difference of puts and a second
+    # difference of calls are the same number in exact arithmetic -- and not in
+    # double precision. Below the forward a call is worth its intrinsic plus a
+    # whisper: at a strike of 1% against a forward of 2% the call is 0.0094, its
+    # last bit is 1.7e-18, and a second difference over a step of 1e-06 divides
+    # four of those by 1.1e-12 and reports 6e-06 of pure noise -- which is larger
+    # than the density there. The put at the same strike is worth 1e-30 and is
+    # computed to full relative precision, so the same difference carries signal.
+    # The first draft of this used calls throughout and located a "negative
+    # density" in the deep wing that was entirely rounding.
+    option = OptionType.PUT if strike < forward else OptionType.CALL
 
-    def call(at: float) -> float:
+    def value(at: float) -> float:
         vol = lognormal_volatility(parameters, forward, at, time)
-        return black(forward, at, vol * root, OptionType.CALL)
+        return black(forward, at, vol * root, option)
 
-    return (call(strike + width) - 2.0 * call(strike) + call(strike - width)) / (
+    return (value(strike + width) - 2.0 * value(strike) + value(strike - width)) / (
         width * width
     )
 
@@ -672,6 +706,11 @@ def density_floor(
     Returns ``None`` when the density stays non-negative all the way down to
     ``lower``, which is the honest answer and not a claim that the smile is
     arbitrage-free: a finer search or a lower floor may still find one.
+
+    The value *at* the returned strike is a bisected zero crossing, so it is
+    rounding by construction and will flip sign with the differencing step. To
+    see how bad the defect is, evaluate :func:`density` a little inside the
+    region rather than at its boundary.
 
     Args:
         lower: Where to stop looking, defaulting to 1e-03 of the forward. A
