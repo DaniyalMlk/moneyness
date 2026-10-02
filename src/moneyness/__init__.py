@@ -99,9 +99,12 @@ from .variance import (
     Replication,
     Strip,
     VarianceSwap,
+    VolatilitySwap,
     fair_variance,
     fair_variance_from_strip,
+    integrated_variance_variance,
     truncation_error,
+    volatility_swap_strike,
 )
 
 # Kept in step with the version in pyproject.toml by a test, because the two
@@ -142,6 +145,7 @@ __all__ = [
     "Strip",
     "Surface",
     "VarianceSwap",
+    "VolatilitySwap",
     "__version__",
     "adaptive_quad",
     "asian",
@@ -178,6 +182,7 @@ __all__ = [
     "gil_pelaez_price",
     "implied_normal_vol",
     "implied_vol",
+    "integrated_variance_variance",
     "intrinsic",
     "lewis_price",
     "log_moneyness",
@@ -206,6 +211,7 @@ __all__ = [
     "variance_path",
     "vega",
     "veta",
+    "volatility_swap_strike",
     "volga",
     "zomma",
 ]
