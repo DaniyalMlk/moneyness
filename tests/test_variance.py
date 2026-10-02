@@ -17,6 +17,7 @@ against the measurement rather than quoted.
 from __future__ import annotations
 
 import math
+import random
 from collections.abc import Callable
 
 import pytest
@@ -25,7 +26,18 @@ from moneyness.bsm import Inputs, OptionType
 from moneyness.bsm import price as bs_price
 from moneyness.heston import Contract, Heston
 from moneyness.heston import price as heston_price
-from moneyness.variance import BadStrip, fair_variance, truncation_error
+from moneyness.heston_mc import variance_path
+from moneyness.quadrature import adaptive_quad
+from moneyness.variance import (
+    BadStrip,
+    Centring,
+    Strip,
+    fair_variance,
+    fair_variance_from_strip,
+    integrated_variance_variance,
+    truncation_error,
+    volatility_swap_strike,
+)
 
 FORWARD = 100.0
 RATE = 0.03
@@ -363,3 +375,320 @@ class TestReplicationValidation:
     def test_rejects_a_non_finite_price(self) -> None:
         with pytest.raises(BadStrip, match="non-negative"):
             fair_variance(lambda _strike: math.nan, FORWARD, 1.0, 0.97, width=1.0)
+
+
+def flat_strip(
+    forward: float, time: float, rate: float, vol: float, step: float
+) -> Strip:
+    """A lattice of strikes at a flat volatility, quoted the way a desk sees it.
+
+    Strikes sit on a multiple of ``step`` regardless of where the forward is,
+    which is the point: the forward almost never coincides with a listed
+    strike, and the gap between it and the largest strike below it is what the
+    centring correction exists for.
+    """
+    discount = math.exp(-rate * time)
+    strikes: list[float] = []
+    strike = step * math.ceil(forward * 0.1 / step)
+    while strike <= forward * 10.0:
+        strikes.append(round(strike, 12))
+        strike += step
+    reference = max(k for k in strikes if k <= forward)
+    quotes: list[tuple[float, float]] = []
+    for k in strikes:
+        put = bs_price(Inputs.on_future(forward, k, time, rate, vol), OptionType.PUT)
+        call = bs_price(Inputs.on_future(forward, k, time, rate, vol), OptionType.CALL)
+        if k < reference:
+            quotes.append((k, put))
+        elif k > reference:
+            quotes.append((k, call))
+        else:
+            quotes.append((k, 0.5 * (put + call)))
+    return Strip.from_quotes(quotes, forward, time, discount)
+
+
+class TestCentring:
+    """The sum over listed strikes, and the term that makes it converge."""
+
+    # A forward that is not a round number, so it never lands on a lattice
+    # point for any of the spacings below.
+    OFF_LATTICE = 102.37
+    SPACINGS = (8.0, 4.0, 2.0, 1.0, 0.5, 0.25, 0.125)
+
+    def _errors(self, centring: Centring) -> list[float]:
+        return [
+            fair_variance_from_strip(
+                flat_strip(self.OFF_LATTICE, 1.0, RATE, 0.2, step), centring=centring
+            ).fair_variance
+            - 0.04
+            for step in self.SPACINGS
+        ]
+
+    @pytest.mark.parametrize("centring", [Centring.QUADRATIC, Centring.EXACT])
+    def test_correction_gives_second_order_convergence(self, centring: Centring) -> None:
+        """Halving the spacing quarters the error, which is the rectangle rule's own order."""
+        errors = self._errors(centring)
+        ratios = [errors[i] / errors[i + 1] for i in range(len(errors) - 1)]
+        # The first two spacings are coarse enough that the asymptotic order
+        # has not set in; from 2.0 down it is clean.
+        for ratio in ratios[2:]:
+            assert ratio == pytest.approx(4.0, abs=0.05)
+
+    def test_uncorrected_sum_has_no_order_at_all(self) -> None:
+        """Its error is set by where the forward falls, not by the spacing.
+
+        Halving ratios of 6.64, 10.71, 2.65, 1.71, 7.23 and 1.46 against the
+        corrected sum's 4.00. The uncorrected error carries the centring term
+        ``(F/K0 - 1)**2 / T``, and ``K0`` jumps about as the lattice changes,
+        so the sequence is not even monotone in the spacing.
+        """
+        errors = self._errors(Centring.NONE)
+        ratios = [errors[i] / errors[i + 1] for i in range(len(errors) - 1)]
+        assert max(ratios) > 6.0
+        assert min(ratios) < 2.0
+        # And it is always worse than the corrected sum at the same spacing.
+        corrected = self._errors(Centring.EXACT)
+        for raw, fixed in zip(errors[2:], corrected[2:], strict=True):
+            assert abs(raw) > abs(fixed)
+
+    def test_the_market_convention_is_the_leading_term_only(self) -> None:
+        """``(F/K0-1)**2`` against ``2(F/K0-1-log(F/K0))``, measured.
+
+        The convention overstates the true centring term by 0.67% at a gap of
+        one per cent, 6.6% at ten per cent and 32% at a half. Both agree to
+        third order, which is why a fine lattice cannot tell them apart.
+        """
+        for gap, expected in (
+            (0.001, 1.000667),
+            (0.01, 1.006661),
+            (0.1, 1.066139),
+            (0.5, 1.322263),
+        ):
+            ratio = 1.0 + gap
+            quadratic = gap * gap
+            exact = 2.0 * (gap - math.log(ratio))
+            assert quadratic / exact == pytest.approx(expected, rel=1e-6)
+
+    def test_the_sum_overstates_before_correction(self) -> None:
+        strip = flat_strip(self.OFF_LATTICE, 1.0, RATE, 0.2, 5.0)
+        result = fair_variance_from_strip(strip, centring=Centring.EXACT)
+        assert result.raw > result.fair_variance
+        assert result.correction > 0.0
+        assert result.gap == pytest.approx(self.OFF_LATTICE / result.reference - 1.0)
+        assert result.reference <= self.OFF_LATTICE
+        assert result.strikes == len(strip.strikes)
+        assert result.fair_volatility == pytest.approx(math.sqrt(result.fair_variance))
+
+    def test_a_forward_on_the_lattice_needs_no_correction(self) -> None:
+        strip = flat_strip(100.0, 1.0, RATE, 0.2, 5.0)
+        assert strip.reference == 100.0
+        for centring in Centring:
+            result = fair_variance_from_strip(strip, centring=centring)
+            assert result.correction == 0.0
+            assert result.gap == 0.0
+
+    def test_strip_geometry(self) -> None:
+        strip = Strip.from_quotes(
+            [(90.0, 1.0), (100.0, 2.0), (115.0, 1.5), (130.0, 0.5)], 103.0, 1.0, 0.97
+        )
+        assert strip.reference == 100.0
+        assert strip.widths == (10.0, 12.5, 15.0, 15.0)
+        low, high = strip.log_range
+        assert low == pytest.approx(math.log(90.0 / 103.0))
+        assert high == pytest.approx(math.log(130.0 / 103.0))
+
+    def test_quotes_are_sorted_on_the_way_in(self) -> None:
+        strip = Strip.from_quotes(
+            [(130.0, 0.5), (90.0, 1.0), (115.0, 1.5), (100.0, 2.0)], 103.0, 1.0, 0.97
+        )
+        assert strip.strikes == (90.0, 100.0, 115.0, 130.0)
+        assert strip.prices == (1.0, 2.0, 1.5, 0.5)
+
+
+class TestStripValidation:
+    def test_rejects_mismatched_lengths(self) -> None:
+        with pytest.raises(BadStrip, match="must match"):
+            Strip((90.0, 100.0, 110.0), (1.0, 2.0), 100.0, 1.0, 0.97)
+
+    def test_rejects_too_few_strikes(self) -> None:
+        with pytest.raises(BadStrip, match="at least three"):
+            Strip((90.0, 110.0), (1.0, 1.0), 100.0, 1.0, 0.97)
+
+    def test_rejects_unsorted_or_repeated_strikes(self) -> None:
+        with pytest.raises(BadStrip, match="strictly increasing"):
+            Strip((90.0, 110.0, 100.0), (1.0, 1.0, 1.0), 100.0, 1.0, 0.97)
+        with pytest.raises(BadStrip, match="strictly increasing"):
+            Strip((90.0, 100.0, 100.0, 110.0), (1.0, 1.0, 1.0, 1.0), 100.0, 1.0, 0.97)
+
+    def test_rejects_a_negative_price(self) -> None:
+        with pytest.raises(BadStrip, match="non-negative"):
+            Strip((90.0, 100.0, 110.0), (1.0, -2.0, 1.0), 100.0, 1.0, 0.97)
+
+    def test_rejects_strikes_that_do_not_bracket_the_forward(self) -> None:
+        with pytest.raises(BadStrip, match="bracket the forward"):
+            Strip((110.0, 120.0, 130.0), (1.0, 1.0, 1.0), 100.0, 1.0, 0.97)
+        with pytest.raises(BadStrip, match="bracket the forward"):
+            Strip((70.0, 80.0, 90.0), (1.0, 1.0, 1.0), 100.0, 1.0, 0.97)
+
+    def test_rejects_a_bad_market(self) -> None:
+        for kwargs in ({"forward": -1.0}, {"time": 0.0}, {"discount": 0.0}):
+            market = {"forward": 100.0, "time": 1.0, "discount": 0.97}
+            market.update(kwargs)
+            with pytest.raises(BadStrip):
+                Strip(
+                    (90.0, 100.0, 110.0),
+                    (1.0, 1.0, 1.0),
+                    market["forward"],
+                    market["time"],
+                    market["discount"],
+                )
+
+
+class TestIntegratedVarianceVariance:
+    """The closed form against the covariance it was integrated from."""
+
+    @staticmethod
+    def by_quadrature(model: Heston, time: float) -> float:
+        """``2 int int e^{-kappa(t-s)} Var(V_s) ds dt``, evaluated numerically.
+
+        Shares the covariance structure with the closed form and none of the
+        algebra, which is the only part that could be wrong.
+        """
+        kappa = model.kappa
+        sigma_sq = model.sigma * model.sigma
+
+        def var_v(s: float) -> float:
+            return (sigma_sq * model.theta / (2.0 * kappa)) * (
+                1.0 - math.exp(-kappa * s)
+            ) ** 2 + (sigma_sq * model.v0 / kappa) * (
+                math.exp(-kappa * s) - math.exp(-2.0 * kappa * s)
+            )
+
+        def inner(t: float) -> float:
+            return adaptive_quad(
+                lambda s: math.exp(-kappa * (t - s)) * var_v(s), 0.0, t, 1e-14
+            )
+
+        return 2.0 * adaptive_quad(inner, 0.0, time, 1e-13)
+
+    @pytest.mark.parametrize("model", MODELS)
+    @pytest.mark.parametrize("time", [0.25, 1.0, 5.0])
+    def test_against_double_quadrature(self, model: Heston, time: float) -> None:
+        closed = integrated_variance_variance(model, time)
+        assert closed == pytest.approx(self.by_quadrature(model, time), rel=1e-11)
+
+    def test_stationary_case_collapses(self) -> None:
+        """At ``v0 = theta`` the two coefficients combine into the known form."""
+        model = Heston(v0=0.04, theta=0.04, kappa=1.3, sigma=0.45, rho=-0.6)
+        for time in (0.1, 0.5, 2.0, 7.0):
+            kappa = model.kappa
+            expected = (
+                model.sigma**2
+                * model.theta
+                * (
+                    2.0 * kappa * time
+                    - 3.0
+                    + 4.0 * math.exp(-kappa * time)
+                    - math.exp(-2.0 * kappa * time)
+                )
+                / (2.0 * kappa**3)
+            )
+            assert integrated_variance_variance(model, time) == pytest.approx(
+                expected, rel=1e-13
+            )
+
+    def test_zero_vol_of_vol_leaves_no_variance(self) -> None:
+        model = Heston(v0=0.04, theta=0.05, kappa=1.0, sigma=0.0, rho=0.0)
+        for time in (0.0, 0.5, 3.0):
+            assert integrated_variance_variance(model, time) == 0.0
+
+    def test_grows_with_the_horizon(self) -> None:
+        for model in MODELS:
+            values = [integrated_variance_variance(model, t) for t in (0.25, 1.0, 4.0, 10.0)]
+            assert values == sorted(values)
+            assert all(v > 0.0 for v in values)
+
+    def test_rejects_a_negative_horizon(self) -> None:
+        with pytest.raises(ValueError, match="non-negative"):
+            integrated_variance_variance(STATIONARY, -1.0)
+
+
+class TestVolatilitySwap:
+    """The convexity gap, and how much the second-order term overstates it."""
+
+    @staticmethod
+    def simulate(
+        model: Heston, time: float, paths: int, steps: int, seed: int
+    ) -> tuple[float, float]:
+        """``E[sqrt(RV)]`` and its standard error, from simulated variance paths."""
+        rng = random.Random(seed)
+        step = time / steps
+        total = 0.0
+        total_sq = 0.0
+        for _ in range(paths):
+            path = variance_path(model, time, steps, [rng.random() for _ in range(steps)])
+            previous = model.v0
+            integral = 0.0
+            for value in path:
+                integral += 0.5 * (previous + value) * step
+                previous = value
+            root = math.sqrt(integral / time)
+            total += root
+            total_sq += root * root
+        mean = total / paths
+        return mean, math.sqrt(max(total_sq / paths - mean * mean, 0.0) / paths)
+
+    def test_strike_is_below_the_square_root_of_fair_variance(self) -> None:
+        for model in MODELS:
+            for time in (0.25, 1.0, 5.0):
+                result = volatility_swap_strike(model, time)
+                assert result.convexity > 0.0
+                assert result.strike < math.sqrt(result.variance_strike)
+                assert result.strike + result.convexity == pytest.approx(
+                    math.sqrt(result.variance_strike)
+                )
+                assert result.variance_strike == pytest.approx(
+                    model.expected_integrated_variance(time) / time
+                )
+
+    def test_dispersion_is_the_squared_coefficient_of_variation(self) -> None:
+        for model in MODELS:
+            time = 1.5
+            result = volatility_swap_strike(model, time)
+            mean = model.expected_integrated_variance(time) / time
+            expected = integrated_variance_variance(model, time) / (time * time) / mean**2
+            assert result.dispersion == pytest.approx(expected, rel=1e-14)
+
+    def test_no_vol_of_vol_means_no_convexity(self) -> None:
+        model = Heston(v0=0.04, theta=0.04, kappa=1.0, sigma=0.0, rho=0.0)
+        result = volatility_swap_strike(model, 1.0)
+        assert result.convexity == 0.0
+        assert result.strike == pytest.approx(0.2, rel=1e-14)
+
+    def test_second_order_overstates_the_discount(self) -> None:
+        """Against simulation, and the overstatement is many standard errors.
+
+        Twelve thousand paths of eighty steps each. The step count is not the
+        binding constraint: at 25,000 paths the simulated mean moves by less
+        than one standard error between 50 and 800 steps, because the
+        trapezoid of an exact-marginal path has no bias in the first moment
+        and the second is matched to within sampling error too. What moves the
+        answer is the truncated series.
+        """
+        for seed, model in enumerate(MODELS):
+            time = 1.0
+            predicted = volatility_swap_strike(model, time)
+            simulated, error = self.simulate(model, time, 12_000, 80, 4000 + seed)
+            root = math.sqrt(predicted.variance_strike)
+            # Right sign: both sit below the square root of fair variance.
+            assert simulated < root
+            # Wrong size: the predicted discount is the larger one, by enough
+            # that sampling cannot account for it.
+            assert predicted.strike < simulated
+            assert (simulated - predicted.strike) / error > 3.0
+            ratio = predicted.convexity / (root - simulated)
+            assert 1.1 < ratio < 1.6
+
+    def test_rejects_a_zero_horizon(self) -> None:
+        with pytest.raises(ValueError, match="positive"):
+            volatility_swap_strike(STATIONARY, 0.0)
