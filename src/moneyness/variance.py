@@ -110,16 +110,21 @@ both cheaper and more honest.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from enum import Enum
 
 from .normal import norm_cdf, norm_pdf
 from .quadrature import adaptive_quad
 
 __all__ = [
     "BadStrip",
+    "Centring",
     "Replication",
+    "Strip",
+    "VarianceSwap",
     "fair_variance",
+    "fair_variance_from_strip",
     "truncation_error",
 ]
 
@@ -306,3 +311,195 @@ def truncation_error(
         slope = 1.0 / forward - 1.0 / boundary
         excess += e_g - g_boundary * prob - slope * (e_spot - boundary * prob)
     return -2.0 / time * excess
+
+
+class Centring(str, Enum):
+    """Which correction to apply for a split that is not at the forward."""
+
+    NONE = "none"
+    """No correction. The sum then overstates the fair variance."""
+
+    QUADRATIC = "quadratic"
+    """``(F/K0 - 1)**2 / T``: the market convention, the leading term only."""
+
+    EXACT = "exact"
+    """``2 (F/K0 - 1 - log(F/K0)) / T``: the whole of the centring term."""
+
+
+@dataclass(frozen=True, slots=True)
+class Strip:
+    """A ladder of listed strikes and the out-of-the-money prices against them.
+
+    One price per strike: a put below the reference strike, a call above it.
+    At the reference strike itself the market convention is the *average* of
+    the put and the call, because both are at the money there and neither is
+    the out-of-the-money one; the caller supplies that average, since only the
+    caller knows both quotes.
+
+    Attributes:
+        strikes: Listed strikes, strictly increasing and positive. Must
+            bracket the forward.
+        prices: Present value of the out-of-the-money option at each strike.
+            Non-negative, same length as ``strikes``.
+        forward: The forward the swap is struck against.
+        time: Year fraction to expiry.
+        discount: Discount factor to expiry.
+    """
+
+    strikes: tuple[float, ...]
+    prices: tuple[float, ...]
+    forward: float
+    time: float
+    discount: float
+
+    def __post_init__(self) -> None:
+        if len(self.strikes) != len(self.prices):
+            raise BadStrip(
+                f"got {len(self.strikes)} strikes and {len(self.prices)} prices, "
+                "which must match"
+            )
+        if len(self.strikes) < 3:
+            raise BadStrip(
+                f"a strip needs at least three strikes to have an interior, got "
+                f"{len(self.strikes)}"
+            )
+        _positive("forward", self.forward)
+        _positive("time", self.time)
+        _positive("discount", self.discount)
+        previous = 0.0
+        for strike in self.strikes:
+            _positive("strike", strike)
+            if strike <= previous:
+                raise BadStrip(
+                    f"strikes must be strictly increasing, got {strike!r} "
+                    f"after {previous!r}"
+                )
+            previous = strike
+        for price in self.prices:
+            if not math.isfinite(price) or price < 0.0:
+                raise BadStrip(f"prices must be non-negative and finite, got {price!r}")
+        if not self.strikes[0] < self.forward < self.strikes[-1]:
+            raise BadStrip(
+                f"the strikes must bracket the forward, got "
+                f"[{self.strikes[0]!r}, {self.strikes[-1]!r}] around {self.forward!r}"
+            )
+
+    @classmethod
+    def from_quotes(
+        cls,
+        quotes: Iterable[tuple[float, float]],
+        forward: float,
+        time: float,
+        discount: float,
+    ) -> Strip:
+        """Build a strip from ``(strike, price)`` pairs, sorted by strike."""
+        pairs = sorted(quotes)
+        return cls(
+            tuple(strike for strike, _ in pairs),
+            tuple(price for _, price in pairs),
+            forward,
+            time,
+            discount,
+        )
+
+    @property
+    def reference(self) -> float:
+        """``K0``: the largest listed strike at or below the forward."""
+        return max(strike for strike in self.strikes if strike <= self.forward)
+
+    @property
+    def widths(self) -> tuple[float, ...]:
+        """Half the gap to either neighbour; one-sided at the two ends."""
+        strikes = self.strikes
+        last = len(strikes) - 1
+        return tuple(
+            strikes[1] - strikes[0]
+            if i == 0
+            else strikes[last] - strikes[last - 1]
+            if i == last
+            else 0.5 * (strikes[i + 1] - strikes[i - 1])
+            for i in range(len(strikes))
+        )
+
+    @property
+    def log_range(self) -> tuple[float, float]:
+        """Log-moneyness of the lowest and highest listed strike."""
+        return (
+            math.log(self.strikes[0] / self.forward),
+            math.log(self.strikes[-1] / self.forward),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class VarianceSwap:
+    """Fair variance from a listed strip, and the centring it had to undo.
+
+    Attributes:
+        fair_variance: Annualised fair variance, after the correction.
+        raw: The uncorrected sum, which overstates the fair variance whenever
+            the forward does not sit on a listed strike.
+        correction: What was subtracted from ``raw``.
+        centring: Which correction was used.
+        reference: The split strike ``K0``.
+        gap: ``F/K0 - 1``, the relative distance from the split to the forward
+            and the only thing the correction depends on.
+        strikes: How many strikes the sum ran over.
+    """
+
+    fair_variance: float
+    raw: float
+    correction: float
+    centring: Centring
+    reference: float
+    gap: float
+    strikes: int
+
+    @property
+    def fair_volatility(self) -> float:
+        """``sqrt`` of the fair variance. Not a volatility swap strike."""
+        return math.sqrt(self.fair_variance)
+
+
+def fair_variance_from_strip(
+    strip: Strip, *, centring: Centring = Centring.EXACT
+) -> VarianceSwap:
+    """Fair variance from a listed strip, the way a desk computes it.
+
+    The sum is ``(2/T) sum dK_i / K_i**2 * Q_i / D``, with ``Q_i`` the
+    out-of-the-money price and ``dK_i`` half the gap to either neighbour. It
+    splits puts from calls at ``K0``, the largest listed strike at or below the
+    forward, because that is where the quotes change over, and splitting there
+    rather than at the forward replicates the log contract centred on ``K0``.
+    That costs exactly ``(2/T)(F/K0 - 1 - log(F/K0))``, which is what
+    :attr:`Centring.EXACT` removes; :attr:`Centring.QUADRATIC` removes the
+    market convention's leading term instead.
+
+    Args:
+        strip: The ladder of strikes and out-of-the-money prices.
+        centring: Which correction to subtract.
+
+    Returns:
+        A :class:`VarianceSwap`.
+    """
+    reference = strip.reference
+    total = 0.0
+    for strike, price, width in zip(strip.strikes, strip.prices, strip.widths, strict=True):
+        total += width / (strike * strike) * price
+    raw = 2.0 / strip.time * total / strip.discount
+    ratio = strip.forward / reference
+    gap = ratio - 1.0
+    if centring is Centring.QUADRATIC:
+        correction = gap * gap / strip.time
+    elif centring is Centring.EXACT:
+        correction = 2.0 / strip.time * (gap - math.log(ratio))
+    else:
+        correction = 0.0
+    return VarianceSwap(
+        fair_variance=raw - correction,
+        raw=raw,
+        correction=correction,
+        centring=centring,
+        reference=reference,
+        gap=gap,
+        strikes=len(strip.strikes),
+    )

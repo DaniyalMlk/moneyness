@@ -93,7 +93,16 @@ from .sabr import (
 )
 from .surface import Calendar, LocalVol, Surface
 from .svi import SVI, Butterfly, Fit, calibrate, density, durrleman
-from .variance import BadStrip, Replication, fair_variance, truncation_error
+from .variance import (
+    BadStrip,
+    Centring,
+    Replication,
+    Strip,
+    VarianceSwap,
+    fair_variance,
+    fair_variance_from_strip,
+    truncation_error,
+)
 
 # Kept in step with the version in pyproject.toml by a test, because the two
 # are written in different files and nothing else would notice them drifting.
@@ -108,6 +117,7 @@ __all__ = [
     "Butterfly",
     "Calendar",
     "Calibration",
+    "Centring",
     "Contract",
     "Estimate",
     "Exercise",
@@ -129,7 +139,9 @@ __all__ = [
     "Smile",
     "SmilePoint",
     "Solution",
+    "Strip",
     "Surface",
+    "VarianceSwap",
     "__version__",
     "adaptive_quad",
     "asian",
@@ -156,6 +168,7 @@ __all__ = [
     "durrleman",
     "european",
     "fair_variance",
+    "fair_variance_from_strip",
     "fixed_quad",
     "forward",
     "forward_delta",
