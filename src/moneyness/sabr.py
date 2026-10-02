@@ -712,6 +712,11 @@ def density_floor(
     see how bad the defect is, evaluate :func:`density` a little inside the
     region rather than at its boundary.
 
+    This searches *downwards* only, as the name says. A long-dated smile can be
+    negative in the high-strike wing too — at ten years with a vol-of-vol of 0.8
+    the density is -1.61 at a 2.67% strike against a 2% forward, stable across
+    differencing steps — and nothing here looks for that.
+
     Args:
         lower: Where to stop looking, defaulting to 1e-03 of the forward. A
             SABR smile's density defect is in the low-strike wing, so the search

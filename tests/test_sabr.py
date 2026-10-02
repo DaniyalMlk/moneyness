@@ -694,3 +694,36 @@ def test_calibration_refuses_what_it_cannot_fit(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         calibrate(FORWARD, TIME, quotes, weights=weights)
+
+
+def test_a_long_dated_smile_is_negative_in_the_high_wing_too() -> None:
+    """Which ``density_floor`` does not look for, as its name says.
+
+    Found by reading the command line's density column rather than by looking:
+    at ten years the defect is on both sides, and the upper one is stable across
+    differencing steps in the same way the lower one is.
+    """
+    for strike, expected in ((0.0267, -1.607), (0.0308, -1.107), (0.035, -0.756)):
+        for step in (1e-3, 1e-4, 1e-5):
+            value = density(LONG_DATED, FORWARD, strike, 10.0, step=step * strike)
+            assert value == pytest.approx(expected, rel=1e-3)
+
+
+def test_the_one_year_high_wing_is_tiny_and_positive_rather_than_zero() -> None:
+    """Which needed checking rather than reading off a formatted column.
+
+    Printed to six decimals these are ``0.000000``, which is what first
+    suggested the differencing had run out of precision up here. It has not:
+    pricing the out-of-the-money *call* keeps full relative accuracy, so the
+    density at a 5% strike comes back as 1.1e-19 and is a real number. An
+    absence of a defect and an absence of arithmetic look identical in a
+    printed table and are not the same thing.
+    """
+    values = [
+        density(SWAPTION, FORWARD, strike, TIME, step=1e-4 * strike)
+        for strike in (0.03, 0.05, 0.08)
+    ]
+    assert all(one > 0.0 for one in values)
+    assert values == sorted(values, reverse=True)
+    assert values[0] == pytest.approx(4.196e-10, rel=1e-3)
+    assert values[1] == pytest.approx(1.111e-19, rel=1e-3)
