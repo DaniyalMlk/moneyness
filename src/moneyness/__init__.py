@@ -93,6 +93,7 @@ from .sabr import (
 )
 from .surface import Calendar, LocalVol, Surface
 from .svi import SVI, Butterfly, Fit, calibrate, density, durrleman
+from .variance import BadStrip, Replication, fair_variance, truncation_error
 
 # Kept in step with the version in pyproject.toml by a test, because the two
 # are written in different files and nothing else would notice them drifting.
@@ -100,6 +101,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "SVI",
+    "BadStrip",
     "Barrier",
     "Bounds",
     "Branch",
@@ -120,6 +122,7 @@ __all__ = [
     "OptionType",
     "QuadratureError",
     "Quote",
+    "Replication",
     "SabrParameters",
     "Scheme",
     "Settings",
@@ -152,6 +155,7 @@ __all__ = [
     "dual_gamma",
     "durrleman",
     "european",
+    "fair_variance",
     "fixed_quad",
     "forward",
     "forward_delta",
@@ -184,6 +188,7 @@ __all__ = [
     "speed",
     "theta",
     "trigger_price",
+    "truncation_error",
     "vanna",
     "variance_path",
     "vega",
