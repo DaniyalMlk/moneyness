@@ -83,8 +83,15 @@ class FrontStub(Enum):
 
     Attributes:
         LINEAR: Ramp total variance linearly from zero at ``T = 0`` up to the
-            first quoted slice. The local variance is then constant in time
-            across the stub and the front slice reprices.
+            first quoted slice. What this makes constant across the stub is
+            ``dw/dT``, the Dupire *numerator*, which is what the surface was
+            missing and what the front slice needs in order to reprice. The
+            local variance itself still moves, because Durrleman's denominator
+            depends on the level of total variance and that level is ramping:
+            on a realistic front slice it falls by about a quarter from the
+            origin to the first quote. At the money and in the limit ``T -> 0``
+            the denominator goes to one exactly, so the local variance there
+            approaches the first slice's own at-the-money implied variance.
         FLAT: Take the surface exactly as written, flat in total variance below
             the first quote. The local variance is zero there, and every option
             expiring on or before the first quoted maturity is worth its
