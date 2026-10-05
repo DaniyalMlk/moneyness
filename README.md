@@ -814,5 +814,16 @@ listed-strip sum with the centring term computed exactly rather than to leading
 order, and the variance of integrated variance that separates a volatility swap
 from the square root of a variance one.
 
+Phase 13 closes the gap the surface left: the package computed a Dupire local
+volatility and could not price with it. There is now a finite-difference
+solver in log-spot for a general local volatility, European and American, with
+the early-exercise boundary; a bridge from the surface that does the
+forward-log-moneyness mapping in one place; and a `--reprice` flag on the
+`surface` command that solves every quote back out of the surface fitted to it.
+The round trip is the point: a surface's own local volatility reproduces the
+surface to within 1.5e-03 in volatility, and the two ways of getting it wrong —
+reading the moneyness from the spot, and taking the surface literally below its
+first quote — are both measured rather than warned about.
+
 Every item on [the roadmap](ROADMAP.md) is now done except the first release
 on the package index, which waits on the publisher being registered there.

@@ -317,3 +317,95 @@ like a systematic bias: the first attempt at the integrated-variance variance
 showed the mean 0.5% high and the variance 1% high in all nine rows, uniformly
 enough to read as a scheme defect. With independent seeds the same code agrees
 to within 1.5 standard errors.
+
+## Phase 13 — Pricing with the local volatility, not just computing it
+
+- [x] Backward finite differences in log-spot for a general local volatility,
+      with a tridiagonal solve and no dependencies
+- [x] The payoff kink on a grid node, and the spot read off three nodes rather
+      than pinned to one
+- [x] Crank-Nicolson started by fully implicit steps, judged on gamma rather
+      than on the price
+- [x] The time-dependent coefficient read at the step midpoint, and the
+      calendar times where it jumps forced onto the time grid
+- [x] A bridge from the surface that does the forward-log-moneyness mapping in
+      one place
+- [x] The front stub: total variance ramped from zero, because the surface read
+      literally has a calendar arbitrage at the origin
+- [x] The surface recovered from prices solved under its own local volatility
+- [x] American exercise, the early-exercise premium differenced on one mesh, and
+      the exercise boundary
+- [x] Repricing a fitted surface against its own quotes from the command line
+
+The identity was already here. What was missing was any way to check it against
+a price, and that matters because the identity is stated in coordinates. Local
+variance is `(dw/dT) / g` at log-moneyness measured from the *forward*, and the
+local volatility it returns belongs to the spot level whose forward
+log-moneyness is `k`. Reading `k` as spot log-moneyness differentiates the same
+function and so satisfies every test that differentiates anything. At a carry
+of 8% it tilts the recovered smile: `-1.8e-02` in volatility on the left wing
+and `+1.0e-02` on the right, against `1.1e-04` done correctly. A level error
+would hide in a recalibration. A tilt will not.
+
+**The front of the surface cannot be taken literally.** Total variance is held
+flat outside the quoted maturities, so `dw/dT` is zero below the first quote
+and the local variance with it, while the implied variance at the first quote
+is not zero. That is not an artefact of the extrapolation rule, it is a
+calendar arbitrage at the origin: total variance has to vanish as maturity
+does, and a surface holding it at its first quoted level all the way down does
+not. Nothing reproduces such a surface, and the solver handed it returns
+exactly zero for a front-slice at-the-money call. The damage does not stay at
+the front either — the two-year point still comes back 0.037 low in volatility,
+because variance missed before the first quote is never made up afterwards.
+Ramping total variance linearly from zero is the default for that reason, and
+it brings the whole ladder back to within 1.5e-03.
+
+**Two measurements that went against the first guess.** Widening the spatial
+domain was supposed to be a free safety margin. It is not: at a fixed node
+count a wider domain is a coarser one, and the `h^2` term it adds dominates the
+truncation it removes by four orders of magnitude, so the error rises
+monotonically with the width — `2.4e-04`, `4.2e-04`, `6.4e-04`, `9.2e-04`,
+`1.6e-03`, `3.7e-03` from three standard deviations to twelve. Truncation
+itself, measured properly with the spacing held fixed, is spent by five: a
+one-unit widening moves the price by `2.8e-04` at width two, `5.9e-09` at
+three, `6.1e-12` at four, and nothing resolvable after that.
+
+And the implicit start is not about the price. Pure Crank-Nicolson prices a
+year-long at-the-money call to `-3.4e-03` on a 400-by-40 mesh, which is
+respectable, and returns a gamma of 0.0449 against a true 0.0193 — wrong by
+132%. One implicit step gives the *best* price of any setting, `-1.3e-03`, and
+still leaves gamma out by `-5.6e-04`. Two cost the price `7.3e-04` and bring
+gamma to `+2.2e-05`. Each step after that is a first-order step and costs
+about `1.3e-03` for nothing. So the default is two, chosen on a quantity the
+price never would have selected.
+
+**The bug the round trip caught.** A theta-scheme that evaluates the spatial
+operator at both ends of a step and averages them is second order for a
+coefficient smooth in time and first order for one that is not. A local
+volatility built from an interpolated surface is piecewise constant in time, so
+the step beginning at a quoted maturity was receiving the mean of the two sides
+of the jump — wrong by `O(1)` in the coefficient, by `O(dtau)` in the price,
+once, and never refining away. Through a single slice, where nothing jumps, the
+round trip was already converging at ratios of 3.98 to 4.02. Through four
+slices it was going 1.63, 1.83, 1.92. Reading one operator per step at the step
+*midpoint* fixed it: 4.00, 3.99, 3.96, and the residual at 3200 nodes fell from
+`2.48e-05` to `1.02e-06` in implied volatility. Constant volatility is
+unaffected to the last digit, which is the check that this changed how the
+coefficient is sampled rather than the scheme.
+
+Aligning the time grid to those jumps is a separate matter, and what it buys is
+not a smaller error. On a 1.37-year round trip the aligned error falls at
+ratios of 3.77, 4.11, 3.94 and 3.98 under doubling, and the unaligned one goes
+1.93, 18.08, 6.54 and then changes sign — happening to be smaller at the two
+finest meshes and larger at the two coarsest. Which side of a jump each step
+reads depends on where the steps fall, so the sequence scatters. An error that
+is not monotone in the mesh cannot be extrapolated, and should not be trusted
+at any single mesh either.
+
+One correction the suite forced. The ramped stub makes `dw/dT` constant across
+the stub, which was described here as making the local variance constant too.
+It does not: Durrleman's denominator depends on the *level* of total variance,
+and that level is ramping, so the local variance falls by about a quarter from
+the origin to the first quote. At the money the denominator does tend to one,
+so the local variance there tends to the front slice's own at-the-money implied
+variance — an exact limit, now asserted as one.
