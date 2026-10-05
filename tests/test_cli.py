@@ -877,3 +877,28 @@ def test_variance_reports_a_malformed_quote_row(
     source.write_text(rows, encoding="utf-8")
     with pytest.raises(SystemExit, match=message):
         main(["variance", "--forward", "100", "--time", "1", "--quotes", str(source)])
+
+
+def test_surface_reprices_its_own_quotes_through_the_local_volatility(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The end-to-end check the two arbitrage conditions do not make.
+
+    Those ask whether a local volatility exists. This asks whether the one
+    that does reproduces the quotes it came from, which is a different
+    question and the one a user of a fitted surface actually has.
+    """
+    path = _quote_file(tmp_path / "quotes.csv", ORDERED_SLICES)
+    assert (
+        main(
+            ["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05", "--reprice"]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "repriced through the local volatility" in out
+    worst = [line for line in out.splitlines() if line.startswith("worst gap")]
+    assert len(worst) == 1
+    assert float(worst[0].split(":")[1]) < 5e-3
+    # Every quote got an answer rather than a dash.
+    assert " --  " not in out

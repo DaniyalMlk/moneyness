@@ -47,9 +47,10 @@ from .heston import price as heston_price
 from .heston_mc import asian as heston_asian
 from .heston_mc import barrier as heston_barrier
 from .heston_mc import european as heston_european
-from .implied import Method, Quote, black, bounds, solve
+from .implied import Method, Quote, black, bounds, implied_vol, solve
 from .lattice import Exercise, Lattice, boundary, min_steps, price_lattice, richardson
 from .monte_carlo import Barrier, Settings
+from .pde import LocalVolError, Mesh, dupire_local_vol, price_pde
 from .sabr import (
     SabrParameters,
     bachelier,
@@ -404,12 +405,87 @@ def _run_surface(args: argparse.Namespace) -> int:
                 )
             print(f"{k:>8.2f}" + "".join(cells))
 
+    if args.reprice:
+        print()
+        _reprice(surface, grouped, args.spot, args.rate, carry)
+
     print()
     if arbitrage:
         print("verdict: the fitted surface admits arbitrage")
         return 1
     print("verdict: no arbitrage found")
     return 0
+
+
+def _reprice(
+    surface: Surface,
+    grouped: dict[float, list[tuple[float, float]]],
+    spot: float,
+    rate: float,
+    carry: float,
+) -> None:
+    """Solve every quote back out of the surface's own local volatility.
+
+    This is the end-to-end check on the fit, and it is a different question
+    from the two arbitrage conditions above. Those ask whether a local
+    volatility exists; this asks whether the one that does reproduces the
+    prices it was derived from. A surface can pass both conditions and still
+    be repriced badly, because the fit per slice is a least squares and the
+    quotes are not on it.
+
+    The grid is deliberately modest. The residuals here are dominated by the
+    slice fit rather than by the solve, and a finer mesh would spend time
+    resolving the wrong term.
+    """
+    local = dupire_local_vol(surface, spot, carry=carry)
+    mesh = Mesh(space_steps=300, time_steps=150)
+    header = (
+        f"repriced through the local volatility (quoted vol, recovered vol, gap)\n"
+        f"{'maturity':>9} {'strike':>10} {'quoted':>10} {'recovered':>10} {'gap':>11}"
+    )
+    print(header)
+    print("-" * 54)
+    worst = 0.0
+    for maturity in sorted(grouped):
+        forward_price = spot * math.exp(carry * maturity)
+        for strike, quoted in grouped[maturity]:
+            option = OptionType.CALL if strike >= forward_price else OptionType.PUT
+            try:
+                solved = price_pde(
+                    spot=spot,
+                    strike=strike,
+                    time=maturity,
+                    rate=rate,
+                    vol=local,
+                    option=option,
+                    carry=carry,
+                    mesh=mesh,
+                    breakpoints=local.breakpoints,
+                )
+                recovered = implied_vol(
+                    Quote(
+                        spot=spot,
+                        strike=strike,
+                        time=maturity,
+                        rate=rate,
+                        price=solved.value,
+                        carry=carry,
+                    ),
+                    option,
+                )
+            except (LocalVolError, ValueError) as error:
+                print(
+                    f"{maturity:>9.4f} {strike:>10.4f} {quoted:>10.6f}"
+                    f" {'--':>10}  {str(error)[:40]}"
+                )
+                continue
+            gap = recovered - quoted
+            worst = max(worst, abs(gap))
+            print(
+                f"{maturity:>9.4f} {strike:>10.4f} {quoted:>10.6f}"
+                f" {recovered:>10.6f} {gap:>+11.2e}"
+            )
+    print(f"worst gap in volatility: {worst:.3e}")
 
 
 def _format_trigger(level: float) -> str:
@@ -988,6 +1064,14 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="local_vol",
         help="also print a grid of local volatilities",
+    )
+    surface_parser.add_argument(
+        "--reprice",
+        action="store_true",
+        help=(
+            "solve every quote back out of the surface's own local volatility "
+            "and report the gap to the quoted volatility"
+        ),
     )
     surface_parser.set_defaults(handler=_run_surface)
 
