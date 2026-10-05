@@ -23,6 +23,7 @@ the correct mapping and measures the gap.
 from __future__ import annotations
 
 import math
+from itertools import pairwise
 
 import pytest
 
@@ -37,6 +38,7 @@ from moneyness.pde import (
     LocalVolatility,
     LocalVolError,
     Mesh,
+    MeshPrice,
     dupire_local_vol,
     price_pde,
 )
@@ -207,7 +209,9 @@ class TestEuropeanAgainstClosedForm:
             mesh=Mesh(space_steps=600, time_steps=300),
             breakpoints=(0.4,),
         )
-        assert solved.value == pytest.approx(_closed_form(105.0, 1.0, equivalent, OptionType.CALL), abs=3e-3)
+        assert solved.value == pytest.approx(
+            _closed_form(105.0, 1.0, equivalent, OptionType.CALL), abs=3e-3
+        )
 
 
 class TestConvergence:
@@ -228,7 +232,7 @@ class TestConvergence:
                 mesh=Mesh(space_steps=nodes, time_steps=2000),
             )
             errors.append(abs(solved.value - exact))
-        for coarse, fine in zip(errors[:-1], errors[1:], strict=True):
+        for coarse, fine in pairwise(errors):
             assert 3.5 < coarse / fine < 4.6
 
     def test_second_order_in_the_step(self) -> None:
@@ -252,8 +256,8 @@ class TestConvergence:
                 mesh=Mesh(space_steps=800, time_steps=steps),
             )
             values.append(solved.value)
-        gaps = [abs(b - a) for a, b in zip(values[:-1], values[1:], strict=True)]
-        for coarse, fine in zip(gaps[:-1], gaps[1:], strict=True):
+        gaps = [abs(b - a) for a, b in pairwise(values)]
+        for coarse, fine in pairwise(gaps):
             assert 3.4 < coarse / fine < 4.6
 
     def test_the_strike_sits_on_a_node(self) -> None:
@@ -301,27 +305,21 @@ class TestRannacher:
     def test_crank_nicolson_alone_ruins_gamma(self) -> None:
         inputs = Inputs(SPOT, 100.0, 1.0, RATE, 0.20, carry=CARRY)
         truth = bs_gamma(inputs)
-        mesh_args = {"space_steps": 400, "time_steps": 40}
-        naive = price_pde(
-            spot=SPOT,
-            strike=100.0,
-            time=1.0,
-            rate=RATE,
-            vol=_flat(0.20),
-            option=OptionType.CALL,
-            carry=CARRY,
-            mesh=Mesh(rannacher=0, **mesh_args),  # type: ignore[arg-type]
-        )
-        started = price_pde(
-            spot=SPOT,
-            strike=100.0,
-            time=1.0,
-            rate=RATE,
-            vol=_flat(0.20),
-            option=OptionType.CALL,
-            carry=CARRY,
-            mesh=Mesh(rannacher=2, **mesh_args),  # type: ignore[arg-type]
-        )
+
+        def at(rannacher: int) -> MeshPrice:
+            return price_pde(
+                spot=SPOT,
+                strike=100.0,
+                time=1.0,
+                rate=RATE,
+                vol=_flat(0.20),
+                option=OptionType.CALL,
+                carry=CARRY,
+                mesh=Mesh(space_steps=400, time_steps=40, rannacher=rannacher),
+            )
+
+        naive = at(0)
+        started = at(2)
         # The documented measurement: wrong by more than a factor of two
         # without the implicit steps, and within a tenth of a percent with them.
         assert naive.gamma > 2.0 * truth
@@ -364,7 +362,7 @@ class TestTruncation:
         """
         prices = {}
         for width in (2.0, 3.0, 4.0, 5.0, 6.0, 8.0):
-            nodes = int(round(400 * width / 2.0))
+            nodes = round(400 * width / 2.0)
             prices[width] = price_pde(
                 spot=SPOT,
                 strike=100.0,
@@ -469,10 +467,9 @@ class TestDupireRoundTrip:
         """
         errors = []
         for nodes in (200, 400, 800):
-            errors.append(
-                abs(_round_trip(ONE_SLICE, 1.0, 0.0, mesh=Mesh(space_steps=nodes, time_steps=nodes // 2)))
-            )
-        for coarse, fine in zip(errors[:-1], errors[1:], strict=True):
+            mesh = Mesh(space_steps=nodes, time_steps=nodes // 2)
+            errors.append(abs(_round_trip(ONE_SLICE, 1.0, 0.0, mesh=mesh)))
+        for coarse, fine in pairwise(errors):
             assert 3.3 < coarse / fine < 4.7
         assert errors[-1] < 2e-5
 
@@ -485,10 +482,9 @@ class TestDupireRoundTrip:
         """
         errors = []
         for nodes in (400, 800, 1600):
-            errors.append(
-                abs(_round_trip(SURFACE, 1.0, 0.0, mesh=Mesh(space_steps=nodes, time_steps=nodes // 2)))
-            )
-        for coarse, fine in zip(errors[:-1], errors[1:], strict=True):
+            mesh = Mesh(space_steps=nodes, time_steps=nodes // 2)
+            errors.append(abs(_round_trip(SURFACE, 1.0, 0.0, mesh=mesh)))
+        for coarse, fine in pairwise(errors):
             assert 3.3 < coarse / fine < 4.7
 
     def test_a_flat_surface_recovers_its_own_volatility(self) -> None:
@@ -620,7 +616,7 @@ class TestBreakpoints:
             mesh = Mesh(space_steps=nodes, time_steps=nodes // 2)
             aligned.append(abs(_round_trip(SURFACE, 1.37, 0.0, mesh=mesh)))
             loose.append(abs(_round_trip(SURFACE, 1.37, 0.0, mesh=mesh, align=False)))
-        ordered = [coarse / fine for coarse, fine in zip(aligned[:-1], aligned[1:], strict=True)]
+        ordered = [coarse / fine for coarse, fine in pairwise(aligned)]
         assert all(3.3 < ratio < 4.7 for ratio in ordered)
         assert aligned == sorted(aligned, reverse=True)
         # The unaligned sequence can happen to be smaller, and here at the two
@@ -628,7 +624,7 @@ class TestBreakpoints:
         # jump a step reads depends on where the steps fall, so the ratios
         # scatter instead of settling at four, and a sequence like that can
         # neither be extrapolated nor trusted at any single mesh.
-        scattered = [coarse / fine for coarse, fine in zip(loose[:-1], loose[1:], strict=True)]
+        scattered = [coarse / fine for coarse, fine in pairwise(loose)]
         assert any(ratio < 2.5 or ratio > 6.0 for ratio in scattered)
 
     def test_breakpoints_outside_the_horizon_are_ignored(self) -> None:
@@ -700,19 +696,22 @@ class TestAmerican:
     def test_the_premium_is_differenced_on_one_mesh(self) -> None:
         """Which is what makes it smaller than either leg's own error."""
         inputs = Inputs(SPOT, 100.0, 1.0, 0.05, 0.20, carry=0.0)
-        mesh = Mesh(space_steps=300, time_steps=150)
-        shared = {
-            "spot": SPOT,
-            "strike": 100.0,
-            "time": 1.0,
-            "rate": 0.05,
-            "vol": _flat(0.20),
-            "option": OptionType.PUT,
-            "carry": 0.0,
-            "mesh": mesh,
-        }
-        american = price_pde(exercise=Exercise.AMERICAN, **shared)  # type: ignore[arg-type]
-        european = price_pde(**shared)  # type: ignore[arg-type]
+
+        def at(exercise: Exercise) -> MeshPrice:
+            return price_pde(
+                spot=SPOT,
+                strike=100.0,
+                time=1.0,
+                rate=0.05,
+                vol=_flat(0.20),
+                option=OptionType.PUT,
+                carry=0.0,
+                exercise=exercise,
+                mesh=Mesh(space_steps=300, time_steps=150),
+            )
+
+        american = at(Exercise.AMERICAN)
+        european = at(Exercise.EUROPEAN)
         assert american.early_exercise_premium == pytest.approx(
             american.value - european.value, abs=1e-12
         )

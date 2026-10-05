@@ -54,6 +54,7 @@ import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
+from itertools import pairwise
 
 from .bsm import OptionType
 from .lattice import Exercise
@@ -437,11 +438,11 @@ def _time_nodes(time: float, steps: int, breakpoints: Sequence[float]) -> list[f
         if 0.0 < value < time:
             cuts.add(time - value)
     edges = sorted(cuts)
-    spans = [b - a for a, b in zip(edges[:-1], edges[1:], strict=True)]
+    spans = [b - a for a, b in pairwise(edges)]
     total = sum(spans)
     counts = [max(1, round(steps * s / total)) for s in spans]
     nodes = [0.0]
-    for lower, upper, count in zip(edges[:-1], edges[1:], counts, strict=True):
+    for (lower, upper), count in zip(pairwise(edges), counts, strict=True):
         nodes.extend(lower + (upper - lower) * i / count for i in range(1, count + 1))
     nodes[-1] = time
     return nodes
@@ -589,9 +590,10 @@ def _march(
             for j in range(size):
                 if payoffs[j] > values[j]:
                     values[j] = payoffs[j]
-                    if option is OptionType.PUT:
-                        crossing = spots[j]
-                    elif math.isnan(crossing):
+                    # A put exercises below its boundary and a call above it,
+                    # so the boundary is the last node seen in one case and the
+                    # first in the other.
+                    if option is OptionType.PUT or math.isnan(crossing):
                         crossing = spots[j]
             boundary.append((expiry - tau, crossing))
 
