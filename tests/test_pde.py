@@ -28,12 +28,13 @@ from typing import ClassVar
 
 import pytest
 
-from moneyness.barrier import Barrier, Knock, Side, barrier_price
+from moneyness.barrier import barrier_price
 from moneyness.bsm import Inputs, OptionType, price
 from moneyness.greeks import delta as bs_delta
 from moneyness.greeks import gamma as bs_gamma
 from moneyness.implied import Quote, implied_vol
 from moneyness.lattice import Exercise, Lattice, richardson
+from moneyness.monte_carlo import Barrier
 from moneyness.pde import (
     DupireLocalVol,
     FrontStub,
@@ -1027,19 +1028,19 @@ class TestBarrier:
     as well if the solver were converging to a slightly wrong number.
     """
 
-    CONTRACTS: ClassVar[list[tuple[Side, float, float, OptionType]]] = [
-        (Side.DOWN, 85.0, 100.0, OptionType.CALL),
-        (Side.DOWN, 95.0, 100.0, OptionType.CALL),
-        (Side.UP, 120.0, 100.0, OptionType.CALL),
-        (Side.UP, 120.0, 110.0, OptionType.CALL),
-        (Side.DOWN, 85.0, 100.0, OptionType.PUT),
-        (Side.UP, 115.0, 100.0, OptionType.PUT),
-        (Side.UP, 105.0, 90.0, OptionType.PUT),
+    CONTRACTS: ClassVar[list[tuple[Barrier, float, float, OptionType]]] = [
+        (Barrier.DOWN_AND_OUT, 85.0, 100.0, OptionType.CALL),
+        (Barrier.DOWN_AND_OUT, 95.0, 100.0, OptionType.CALL),
+        (Barrier.UP_AND_OUT, 120.0, 100.0, OptionType.CALL),
+        (Barrier.UP_AND_OUT, 120.0, 110.0, OptionType.CALL),
+        (Barrier.DOWN_AND_OUT, 85.0, 100.0, OptionType.PUT),
+        (Barrier.UP_AND_OUT, 115.0, 100.0, OptionType.PUT),
+        (Barrier.UP_AND_OUT, 105.0, 90.0, OptionType.PUT),
     ]
 
     @staticmethod
     def _solve(
-        side: Side,
+        style: Barrier,
         level: float,
         strike: float,
         option: OptionType,
@@ -1055,26 +1056,28 @@ class TestBarrier:
             option=option,
             carry=0.02,
             mesh=Mesh(space_steps=space, time_steps=steps),
-            barrier=Barrier(level, side, Knock.OUT),
+            barrier_level=level,
+            barrier_style=style,
         )
 
     @staticmethod
     def _exact(
-        side: Side, level: float, strike: float, option: OptionType
+        style: Barrier, level: float, strike: float, option: OptionType
     ) -> float:
         return barrier_price(
             Inputs(spot=SPOT, strike=strike, time=1.0, rate=0.05, vol=0.20, carry=0.02),
-            Barrier(level, side, Knock.OUT),
             option,
+            level,
+            style,
         )
 
-    @pytest.mark.parametrize(("side", "level", "strike", "option"), CONTRACTS)
+    @pytest.mark.parametrize(("style", "level", "strike", "option"), CONTRACTS)
     def test_the_solver_converges_on_the_closed_form_at_second_order(
-        self, side: Side, level: float, strike: float, option: OptionType
+        self, style: Barrier, level: float, strike: float, option: OptionType
     ) -> None:
-        exact = self._exact(side, level, strike, option)
+        exact = self._exact(style, level, strike, option)
         errors = [
-            self._solve(side, level, strike, option, space, steps).value - exact
+            self._solve(style, level, strike, option, space, steps).value - exact
             for space, steps in ((200, 100), (400, 200), (800, 400), (1600, 800))
         ]
         # Same sign throughout: an error that changes sign is not converging in
@@ -1085,14 +1088,14 @@ class TestBarrier:
             assert 3.4 < ratio < 4.7
         assert abs(errors[-1]) < 1e-4
 
-    @pytest.mark.parametrize(("side", "level", "strike", "option"), CONTRACTS)
+    @pytest.mark.parametrize(("style", "level", "strike", "option"), CONTRACTS)
     def test_the_barrier_lands_on_a_node(
-        self, side: Side, level: float, strike: float, option: OptionType
+        self, style: Barrier, level: float, strike: float, option: OptionType
     ) -> None:
         """And the knocked-out edge of the domain is the barrier itself."""
-        solved = self._solve(side, level, strike, option, 800, 400)
+        solved = self._solve(style, level, strike, option, 800, 400)
         assert solved.strike_on_node
-        edge = solved.spot_range[0] if side is Side.DOWN else solved.spot_range[1]
+        edge = solved.spot_range[0] if style.is_down else solved.spot_range[1]
         assert edge == pytest.approx(level, rel=1e-13)
 
     def test_displacing_the_barrier_by_half_a_node_dominates_the_mesh_error(
@@ -1105,13 +1108,13 @@ class TestBarrier:
         does not merely add to the error, it takes it over — and by more as the
         mesh refines, which is the signature of the lower order winning.
         """
-        exact = self._exact(Side.UP, 120.0, 100.0, OptionType.CALL)
+        exact = self._exact(Barrier.UP_AND_OUT, 120.0, 100.0, OptionType.CALL)
         span = 6.0 * 0.20 + 0.02
         factors = []
         for space in (200, 400, 800, 1600):
             spacing = 2.0 * span / space
             on_node = self._solve(
-                Side.UP, 120.0, 100.0, OptionType.CALL, space, space // 2
+                Barrier.UP_AND_OUT, 120.0, 100.0, OptionType.CALL, space, space // 2
             ).value
             displaced = price_pde(
                 spot=SPOT,
@@ -1122,9 +1125,8 @@ class TestBarrier:
                 option=OptionType.CALL,
                 carry=0.02,
                 mesh=Mesh(space_steps=space, time_steps=space // 2),
-                barrier=Barrier(
-                    120.0 * math.exp(0.5 * spacing), Side.UP, Knock.OUT
-                ),
+                barrier_level=120.0 * math.exp(0.5 * spacing),
+                barrier_style=Barrier.UP_AND_OUT,
             ).value
             factors.append(abs((displaced - on_node) / (on_node - exact)))
         assert factors == pytest.approx([35.0, 69.0, 137.0, 273.0], rel=0.2)
@@ -1139,8 +1141,9 @@ class TestBarrier:
         """
         exact = barrier_price(
             Inputs(spot=SPOT, strike=85.0, time=1.0, rate=0.05, vol=0.20, carry=0.02),
-            Barrier(84.95, Side.DOWN, Knock.OUT),
             OptionType.CALL,
+            84.95,
+            Barrier.DOWN_AND_OUT,
         )
         errors = []
         for space in (400, 800):
@@ -1153,7 +1156,8 @@ class TestBarrier:
                 option=OptionType.CALL,
                 carry=0.02,
                 mesh=Mesh(space_steps=space, time_steps=space // 2),
-                barrier=Barrier(84.95, Side.DOWN, Knock.OUT),
+                barrier_level=84.95,
+                barrier_style=Barrier.DOWN_AND_OUT,
             )
             assert not solved.strike_on_node
             assert solved.nodes <= 2 * space + 4
@@ -1180,7 +1184,8 @@ class TestBarrier:
             option=OptionType.CALL,
             carry=0.02,
             mesh=Mesh(space_steps=400, time_steps=200),
-            barrier=Barrier(100.05, Side.UP, Knock.OUT),
+            barrier_level=100.05,
+            barrier_style=Barrier.UP_AND_OUT,
         )
         assert not solved.strike_on_node
         assert solved.nodes <= 804
@@ -1198,8 +1203,10 @@ class TestBarrier:
         assert solved.strike_on_node
         assert solved.spot_range[0] < 101.0 < solved.spot_range[1]
 
-    @pytest.mark.parametrize("side", list(Side))
-    def test_a_touched_barrier_reports_zero_without_a_grid(self, side: Side) -> None:
+    @pytest.mark.parametrize("style", [Barrier.DOWN_AND_OUT, Barrier.UP_AND_OUT])
+    def test_a_touched_barrier_reports_zero_without_a_grid(
+        self, style: Barrier
+    ) -> None:
         """nan derivatives, because the contract has ceased to exist.
 
         A delta of zero would say the value is flat in the spot, which is a
@@ -1207,12 +1214,13 @@ class TestBarrier:
         """
         solved = price_pde(
             spot=100.0,
-            strike=95.0 if side is Side.UP else 105.0,
+            strike=95.0 if not style.is_down else 105.0,
             time=1.0,
             rate=RATE,
             vol=_flat(0.20),
-            option=OptionType.CALL if side is Side.UP else OptionType.PUT,
-            barrier=Barrier(100.0, side, Knock.OUT),
+            option=OptionType.CALL if not style.is_down else OptionType.PUT,
+            barrier_level=100.0,
+            barrier_style=style,
         )
         assert solved.value == 0.0
         assert solved.nodes == 0
@@ -1227,7 +1235,8 @@ class TestBarrier:
             rate=RATE,
             vol=_flat(0.20),
             option=OptionType.CALL,
-            barrier=Barrier(120.0, Side.UP, Knock.OUT),
+            barrier_level=120.0,
+            barrier_style=Barrier.UP_AND_OUT,
         )
         assert solved.value == 0.0
         assert solved.nodes == 0
@@ -1248,7 +1257,8 @@ class TestBarrier:
                 rate=RATE,
                 vol=_flat(0.20),
                 option=OptionType.CALL,
-                barrier=Barrier(120.0, Side.UP, Knock.IN),
+                barrier_level=120.0,
+                barrier_style=Barrier.UP_AND_IN,
             )
 
     def test_an_american_knock_out_is_worth_more_than_the_european(self) -> None:
@@ -1268,7 +1278,8 @@ class TestBarrier:
                 option=OptionType.PUT,
                 carry=0.02,
                 mesh=Mesh(space_steps=400, time_steps=200),
-                barrier=Barrier(130.0, Side.UP, Knock.OUT),
+                barrier_level=130.0,
+                barrier_style=Barrier.UP_AND_OUT,
                 exercise=exercise,
             )
 
@@ -1308,7 +1319,8 @@ class TestBarrier:
             option=OptionType.CALL,
             carry=0.02,
             mesh=Mesh(space_steps=800, time_steps=400),
-            barrier=Barrier(1000.0, Side.UP, Knock.OUT),
+            barrier_level=1000.0,
+            barrier_style=Barrier.UP_AND_OUT,
         )
         assert far.value == pytest.approx(plain.value, rel=2e-4)
 
@@ -1328,9 +1340,9 @@ class TestBarrier:
         ten times the spot, four widths and four node counts, with the barrier
         asserted to be the edge in every one.
         """
-        for side, levels in (
-            (Side.DOWN, (99.0, 85.0, 50.0, 10.0)),
-            (Side.UP, (101.0, 120.0, 200.0, 1000.0)),
+        for style, levels in (
+            (Barrier.DOWN_AND_OUT, (99.0, 85.0, 50.0, 10.0)),
+            (Barrier.UP_AND_OUT, (101.0, 120.0, 200.0, 1000.0)),
         ):
             for level in levels:
                 for strike in (85.0, 100.0, 115.0):
@@ -1341,10 +1353,10 @@ class TestBarrier:
                         0.02,
                         0.20,
                         Mesh(space_steps=space, time_steps=10, width=width),
-                        Barrier(level, side, Knock.OUT),
+                        (level, style),
                     )
                     assert nodes[0] < math.log(SPOT) < nodes[-1]
-                    edge = nodes[0] if side is Side.DOWN else nodes[-1]
+                    edge = nodes[0] if style.is_down else nodes[-1]
                     assert edge == pytest.approx(math.log(level), rel=1e-13)
                     assert nodes == sorted(nodes)
 
@@ -1358,7 +1370,7 @@ class TestBarrier:
         """
         local = dupire_local_vol(SURFACE, SPOT, carry=CARRY)
 
-        def solve(barrier: Barrier | None) -> MeshPrice:
+        def solve(level: float | None, style: Barrier | None) -> MeshPrice:
             return price_pde(
                 spot=SPOT,
                 strike=100.0,
@@ -1369,9 +1381,10 @@ class TestBarrier:
                 carry=CARRY,
                 mesh=Mesh(space_steps=400, time_steps=200),
                 breakpoints=local.breakpoints,
-                barrier=barrier,
+                barrier_level=level,
+                barrier_style=style,
             )
 
-        plain = solve(None)
-        knocked = solve(Barrier(130.0, Side.UP, Knock.OUT))
+        plain = solve(None, None)
+        knocked = solve(130.0, Barrier.UP_AND_OUT)
         assert 0.0 < knocked.value < plain.value

@@ -77,9 +77,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from itertools import pairwise
 
-from .barrier import Barrier, Knock, Side
+from .barrier import cannot_pay, is_touched
 from .bsm import OptionType
 from .lattice import Exercise
+from .monte_carlo import Barrier
 from .surface import Surface
 
 __all__ = [
@@ -421,7 +422,7 @@ def _space_nodes(
     carry: float,
     reference: float,
     mesh: Mesh,
-    knockout: Barrier | None = None,
+    knockout: tuple[float, Barrier] | None = None,
 ) -> tuple[list[float], bool]:
     """Log-spot nodes, and whether the strike landed on one.
 
@@ -461,12 +462,12 @@ def _space_nodes(
         upper = max(math.floor((centre + span - anchor) / step), 2)
         return [anchor + i * step for i in range(lower, upper + 1)], True
 
-    edge = math.log(knockout.level)
+    edge = math.log(knockout[0])
     separation = abs(edge - math.log(strike))
     coarse = 2.0 * span / mesh.space_steps
     between = max(1, round(separation / coarse))
     step = separation / between
-    live = span + (centre - edge if knockout.side is Side.DOWN else edge - centre)
+    live = span + (centre - edge if knockout[1].is_down else edge - centre)
     on_node = step > 0.0 and live / step <= 2.0 * mesh.space_steps
     if not on_node:
         step = coarse
@@ -477,7 +478,7 @@ def _space_nodes(
     # solver read a value off three nodes it had no business interpolating
     # between: -1183.8 for a call worth 8.65.
     reach = max(2, math.ceil(live / step))
-    if knockout.side is Side.DOWN:
+    if knockout[1].is_down:
         return [edge + i * step for i in range(reach + 1)], on_node
     return [edge - i * step for i in range(reach, -1, -1)], on_node
 
@@ -551,7 +552,7 @@ def _dirichlet(
     rate: float,
     carry: float,
     option: OptionType,
-    knockout: Barrier | None = None,
+    knockout: tuple[float, Barrier] | None = None,
 ) -> tuple[float, float]:
     """Values at the two boundaries, from the deep in- and out-of-the-money limits.
 
@@ -572,7 +573,7 @@ def _dirichlet(
         return pair
     # The knocked-out edge *is* the barrier, so the condition there is the
     # contract rather than a limit: nothing is paid and nothing is recovered.
-    if knockout.side is Side.DOWN:
+    if knockout[1].is_down:
         return 0.0, pair[1]
     return pair[0], 0.0
 
@@ -609,7 +610,7 @@ def _march(
     exercise: Exercise,
     rannacher: int,
     expiry: float,
-    knockout: Barrier | None = None,
+    knockout: tuple[float, Barrier] | None = None,
 ) -> tuple[list[float], list[tuple[float, float]]]:
     """March the payoff back to now, returning the values and any boundary."""
     size = len(nodes)
@@ -715,7 +716,8 @@ def price_pde(
     exercise: Exercise = Exercise.EUROPEAN,
     mesh: Mesh | None = None,
     breakpoints: Sequence[float] = (),
-    barrier: Barrier | None = None,
+    barrier_level: float | None = None,
+    barrier_style: Barrier | None = None,
 ) -> MeshPrice:
     """Price one option under a local volatility.
 
@@ -741,14 +743,15 @@ def price_pde(
             jump each step reads depends on where the steps happen to fall. An
             error that is not monotone in the mesh cannot be extrapolated and
             should not be trusted at any single mesh either.
-        barrier: A knock-out. The domain then ends at the barrier and the value
-            is held at zero there, which is the contract rather than a limit.
-            Only :attr:`moneyness.barrier.Knock.OUT` is accepted: a knock-in is
-            the vanilla less the knock-out, which
+        barrier_level: A knock-out barrier, as a spot level. The domain then
+            ends there and the value is held at zero, which is the contract
+            rather than a limit. Needs ``barrier_style``.
+        barrier_style: Which barrier. Only the knock-*out* styles are accepted:
+            a knock-in is the vanilla less the knock-out, which
             :func:`moneyness.barrier.barrier_price` already states exactly, and
             computing it here would mean differencing two valuations on
-            different domains -- which is the one subtraction this file is
-            careful not to do.
+            different domains -- the one subtraction this file is careful not
+            to make anywhere else.
 
     Returns:
         A :class:`MeshPrice`.
@@ -766,16 +769,28 @@ def price_pde(
         raise ValueError(f"time must be finite and non-negative, got {time}")
     if not math.isfinite(rate):
         raise ValueError(f"rate must be finite, got {rate}")
-    if barrier is not None:
-        if barrier.knock is not Knock.OUT:
+    barrier: tuple[float, Barrier] | None = None
+    if (barrier_level is None) != (barrier_style is None):
+        raise ValueError(
+            "a barrier needs both a level and a style; one without the other "
+            "would have to guess which side the option survives on"
+        )
+    if barrier_level is not None and barrier_style is not None:
+        if not barrier_style.is_knock_out:
             raise ValueError(
-                "price_pde takes a knock-out; a knock-in is the vanilla less the "
-                "knock-out and barrier_price gives it exactly"
+                f"price_pde takes a knock-out and {barrier_style.value} is not one; "
+                "a knock-in is the vanilla less the knock-out and barrier_price "
+                "gives it exactly"
             )
-        if barrier.is_touched(spot):
+        if not math.isfinite(barrier_level) or barrier_level <= 0.0:
+            raise ValueError(
+                f"barrier_level must be finite and positive, got {barrier_level}"
+            )
+        if is_touched(spot, barrier_level, barrier_style) or cannot_pay(
+            strike, barrier_level, barrier_style, option
+        ):
             return _knocked_out(spot)
-        if barrier.is_inert(strike, option):
-            return _knocked_out(spot)
+        barrier = (barrier_level, barrier_style)
     b = rate if carry is None else carry
     if not math.isfinite(b):
         raise ValueError(f"carry must be finite, got {b}")
@@ -842,7 +857,7 @@ def price_pde(
         # The barrier node is knocked out at expiry too, so the payoff there is
         # zero rather than the intrinsic. Without this the first step reads an
         # intrinsic at the one node the contract says is worthless.
-        edge = 0 if barrier.side is Side.DOWN else len(payoffs) - 1
+        edge = 0 if barrier[1].is_down else len(payoffs) - 1
         payoffs[edge] = 0.0
 
     values, boundary = _march(
