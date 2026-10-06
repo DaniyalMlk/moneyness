@@ -5,6 +5,19 @@ and its market, and free functions over it.
 """
 
 from .american import bjerksund_stensland, bjerksund_stensland_2002, trigger_price
+from .barrier import (
+    BARRIER_DIGITS,
+    BarrierError,
+    barrier_price,
+    beyond_term,
+    cannot_pay,
+    is_structurally_worthless,
+    is_touched,
+    monitoring_shift,
+    reflected_beyond_term,
+    reflected_term,
+    vanilla_term,
+)
 from .bivariate import norm_cdf2
 from .bsm import (
     Inputs,
@@ -122,9 +135,11 @@ from .variance import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "BARRIER_DIGITS",
     "SVI",
     "BadStrip",
     "Barrier",
+    "BarrierError",
     "Bounds",
     "Branch",
     "Butterfly",
@@ -168,12 +183,15 @@ __all__ = [
     "bachelier",
     "bachelier_vega",
     "barrier",
+    "barrier_price",
+    "beyond_term",
     "bjerksund_stensland",
     "bjerksund_stensland_2002",
     "boundary",
     "bounds",
     "branch_discrepancy",
     "calibrate",
+    "cannot_pay",
     "char_func",
     "charm",
     "colour",
@@ -201,10 +219,13 @@ __all__ = [
     "implied_vol",
     "integrated_variance_variance",
     "intrinsic",
+    "is_structurally_worthless",
+    "is_touched",
     "lewis_price",
     "log_moneyness",
     "lognormal_volatility",
     "min_steps",
+    "monitoring_shift",
     "norm_cdf",
     "norm_cdf2",
     "norm_pdf",
@@ -214,6 +235,8 @@ __all__ = [
     "price",
     "price_lattice",
     "price_pde",
+    "reflected_beyond_term",
+    "reflected_term",
     "rho",
     "rho_carry",
     "richardson",
@@ -225,6 +248,7 @@ __all__ = [
     "theta",
     "trigger_price",
     "truncation_error",
+    "vanilla_term",
     "vanna",
     "variance_path",
     "vega",

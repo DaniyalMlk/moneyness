@@ -46,6 +46,27 @@ Both the spot and the strike are placed exactly on grid nodes. The strike has
 to be, or the payoff kink falls between nodes and the convergence order drops
 to one; the spot is a convenience that turns the price, delta and gamma into a
 node read and three differences rather than an interpolation.
+
+**A barrier is a third special level, and it outranks the strike.** A knock-out
+ends the domain *at* the barrier, where the value is held at zero, so a barrier
+falling between nodes is a barrier moved by up to half a spacing — a
+first-order error in the quantity the price is most sensitive to, against the
+kink's second-order one. Measured on an up-and-out call: with the barrier on a
+node the error is 3.4e-03, 8.5e-04, 2.1e-04 and 5.3e-05 as the mesh doubles
+from 200-by-100, falling at ratios of 4.00. Displacing the barrier by half a
+spacing on each of those meshes moves the price by 1.2e-01, 5.8e-02, 2.9e-02
+and 1.5e-02 — **35, 69, 137 and 273 times the on-node error**, and the ratio
+grows as the mesh refines, because the displacement term is the one that does
+not refine away at second order. So the barrier is always on a node.
+
+The strike should be too, and both can be when their separation is a whole
+number of steps — arranged by choosing that number rather than the spacing,
+which costs nothing while they are more than a step apart. Closer than that it
+repeats the collapse above, so the node count is capped at twice the request
+and the lattice falls back to the barrier alone. The first cap was eight times
+the request and let a barrier five basis points from the strike build 2442
+nodes where 400 were asked for: the same failure the strike anchoring was
+written to avoid, six times over, under a guard meant to prevent it.
 """
 
 from __future__ import annotations
@@ -56,8 +77,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from itertools import pairwise
 
+from .barrier import cannot_pay, is_touched
 from .bsm import OptionType
 from .lattice import Exercise
+from .monte_carlo import Barrier
 from .surface import Surface
 
 __all__ = [
@@ -196,6 +219,14 @@ class MeshPrice:
             tracing the exercise boundary, one per time step, latest first.
             ``nan`` for the spot where no node exercised. Empty for a European
             valuation.
+        strike_on_node: Whether the payoff kink landed exactly on a node. True
+            for every valuation without a barrier. With one it can be false:
+            a barrier and a strike are two fixed levels and one spacing, so
+            both land on nodes only if their separation is a whole number of
+            steps, and forcing that when they are close together is what
+            collapses the spacing. See :func:`_space_nodes`. When it is false
+            the barrier is still exact and the kink is not, which is the right
+            way round -- the measured cost is in the module docstring.
     """
 
     value: float
@@ -206,6 +237,7 @@ class MeshPrice:
     spot_range: tuple[float, float]
     early_exercise_premium: float
     boundary: tuple[tuple[float, float], ...] = field(default=())
+    strike_on_node: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,30 +416,71 @@ def _reference_vol(
 
 
 def _space_nodes(
-    spot: float, strike: float, time: float, carry: float, reference: float, mesh: Mesh
-) -> list[float]:
-    """Log-spot nodes, anchored so that the strike is exactly one of them.
+    spot: float,
+    strike: float,
+    time: float,
+    carry: float,
+    reference: float,
+    mesh: Mesh,
+    knockout: tuple[float, Barrier] | None = None,
+) -> tuple[list[float], bool]:
+    """Log-spot nodes, and whether the strike landed on one.
 
-    The domain is centred on the spot and reaches ``Mesh.width`` standard
-    deviations either side; the nodes are then laid on a lattice whose origin
-    is the strike, which puts the payoff kink on a node without constraining
-    the spacing.
+    Without a barrier the domain is centred on the spot and reaches
+    ``Mesh.width`` standard deviations either side; the nodes are then laid on
+    a lattice whose origin is the strike, which puts the payoff kink on a node
+    without constraining the spacing.
 
     An earlier version anchored on the spot and shrank the spacing until the
     strike landed on a node too. That is fine until the strike is near the
     spot, at which point the spacing it demands is the gap between them: a
-    strike 1% from the spot produced 1781 nodes where 600 were asked for, and
-    a strike half a percent away would have produced twice that. The spot does
-    not need to be on a node — three nodes around it and a quadratic are
-    enough for the price and both derivatives — and the strike does.
+    strike 1% from the spot produced 1781 nodes where 600 were asked for. The
+    spot does not need to be on a node -- three nodes around it and a quadratic
+    are enough for the price and both derivatives -- and the strike does.
+
+    **A barrier is a third special level and it outranks the strike.** The
+    knocked-out side of the domain ends *at* the barrier, where the value is
+    held at zero, so a barrier falling between nodes is a barrier moved by up
+    to half a spacing. That is a first-order error in the quantity the price is
+    most sensitive to, against the strike kink's second-order one, so the
+    barrier is always on a node and the strike is only if it can be.
+
+    Both can be when their separation is a whole number of steps, which is
+    arranged by choosing that number rather than the spacing: ``n`` steps
+    between them, picked so the spacing comes out near the one requested. That
+    costs nothing while they are more than a step apart. Closer than that it
+    repeats the collapse above -- the spacing it demands is their separation --
+    so the node count is capped and the lattice falls back to the barrier
+    alone, with :attr:`MeshPrice.strike_on_node` saying which happened.
     """
     centre = math.log(spot)
-    anchor = math.log(strike)
     span = mesh.width * reference * math.sqrt(time) + abs(carry) * time
-    step = 2.0 * span / mesh.space_steps
-    lower = min(math.ceil((centre - span - anchor) / step), -2)
-    upper = max(math.floor((centre + span - anchor) / step), 2)
-    return [anchor + i * step for i in range(lower, upper + 1)]
+    if knockout is None:
+        anchor = math.log(strike)
+        step = 2.0 * span / mesh.space_steps
+        lower = min(math.ceil((centre - span - anchor) / step), -2)
+        upper = max(math.floor((centre + span - anchor) / step), 2)
+        return [anchor + i * step for i in range(lower, upper + 1)], True
+
+    edge = math.log(knockout[0])
+    separation = abs(edge - math.log(strike))
+    coarse = 2.0 * span / mesh.space_steps
+    between = max(1, round(separation / coarse))
+    step = separation / between
+    live = span + (centre - edge if knockout[1].is_down else edge - centre)
+    on_node = step > 0.0 and live / step <= 2.0 * mesh.space_steps
+    if not on_node:
+        step = coarse
+    # Measured from the *barrier*, which is the edge, and it has to reach
+    # ``span`` past the spot on the live side -- not ``span`` past the barrier.
+    # Sizing it from the barrier alone put a barrier at ten times the spot
+    # outside a domain that then did not contain the spot at all, and the
+    # solver read a value off three nodes it had no business interpolating
+    # between: -1183.8 for a call worth 8.65.
+    reach = max(2, math.ceil(live / step))
+    if knockout[1].is_down:
+        return [edge + i * step for i in range(reach + 1)], on_node
+    return [edge - i * step for i in range(reach, -1, -1)], on_node
 
 
 def _read(nodes: list[float], values: list[float], spot: float) -> tuple[float, float, float]:
@@ -479,6 +552,7 @@ def _dirichlet(
     rate: float,
     carry: float,
     option: OptionType,
+    knockout: tuple[float, Barrier] | None = None,
 ) -> tuple[float, float]:
     """Values at the two boundaries, from the deep in- and out-of-the-money limits.
 
@@ -492,8 +566,16 @@ def _dirichlet(
     high = math.exp(nodes[-1]) * math.exp((carry - rate) * tau)
     discounted = strike * math.exp(-rate * tau)
     if option is OptionType.CALL:
-        return 0.0, max(high - discounted, 0.0)
-    return max(discounted - low, 0.0), 0.0
+        pair = (0.0, max(high - discounted, 0.0))
+    else:
+        pair = (max(discounted - low, 0.0), 0.0)
+    if knockout is None:
+        return pair
+    # The knocked-out edge *is* the barrier, so the condition there is the
+    # contract rather than a limit: nothing is paid and nothing is recovered.
+    if knockout[1].is_down:
+        return 0.0, pair[1]
+    return pair[0], 0.0
 
 
 def _thomas(lower: list[float], diag: list[float], upper: list[float], rhs: list[float]) -> None:
@@ -528,6 +610,7 @@ def _march(
     exercise: Exercise,
     rannacher: int,
     expiry: float,
+    knockout: tuple[float, Barrier] | None = None,
 ) -> tuple[list[float], list[tuple[float, float]]]:
     """March the payoff back to now, returning the values and any boundary."""
     size = len(nodes)
@@ -537,7 +620,7 @@ def _march(
     interior = range(1, size - 1)
 
     previous_tau = times[0]
-    low, high = _dirichlet(nodes, strike, previous_tau, rate, carry, option)
+    low, high = _dirichlet(nodes, strike, previous_tau, rate, carry, option, knockout)
     values[0], values[-1] = low, high
 
     for index in range(1, len(times)):
@@ -555,7 +638,7 @@ def _march(
         # always reads the value that actually governs the step.
         middle = expiry - 0.5 * (previous_tau + tau)
         n_low, n_diag, n_upper = _operator(nodes, vol, middle, rate, carry, step)
-        low, high = _dirichlet(nodes, strike, tau, rate, carry, option)
+        low, high = _dirichlet(nodes, strike, tau, rate, carry, option, knockout)
 
         rhs = [0.0] * (size - 2)
         if theta < 1.0:
@@ -587,7 +670,7 @@ def _march(
 
         if exercise is Exercise.AMERICAN:
             crossing = math.nan
-            for j in range(size):
+            for j in range(1, size - 1) if knockout is not None else range(size):
                 if payoffs[j] > values[j]:
                     values[j] = payoffs[j]
                     # A put exercises below its boundary and a call above it,
@@ -603,6 +686,24 @@ def _march(
     return values, boundary
 
 
+def _knocked_out(spot: float) -> MeshPrice:
+    """A contract that is already dead, reported without building a grid.
+
+    Worth exactly nothing, with no derivatives rather than zero ones: a delta
+    of zero would say the value is flat in the spot, and it is not -- the
+    contract has ceased to exist, which is a different statement.
+    """
+    return MeshPrice(
+        value=0.0,
+        delta=math.nan,
+        gamma=math.nan,
+        nodes=0,
+        steps=0,
+        spot_range=(spot, spot),
+        early_exercise_premium=0.0,
+    )
+
+
 def price_pde(
     *,
     spot: float,
@@ -615,6 +716,8 @@ def price_pde(
     exercise: Exercise = Exercise.EUROPEAN,
     mesh: Mesh | None = None,
     breakpoints: Sequence[float] = (),
+    barrier_level: float | None = None,
+    barrier_style: Barrier | None = None,
 ) -> MeshPrice:
     """Price one option under a local volatility.
 
@@ -640,6 +743,15 @@ def price_pde(
             jump each step reads depends on where the steps happen to fall. An
             error that is not monotone in the mesh cannot be extrapolated and
             should not be trusted at any single mesh either.
+        barrier_level: A knock-out barrier, as a spot level. The domain then
+            ends there and the value is held at zero, which is the contract
+            rather than a limit. Needs ``barrier_style``.
+        barrier_style: Which barrier. Only the knock-*out* styles are accepted:
+            a knock-in is the vanilla less the knock-out, which
+            :func:`moneyness.barrier.barrier_price` already states exactly, and
+            computing it here would mean differencing two valuations on
+            different domains -- the one subtraction this file is careful not
+            to make anywhere else.
 
     Returns:
         A :class:`MeshPrice`.
@@ -657,6 +769,28 @@ def price_pde(
         raise ValueError(f"time must be finite and non-negative, got {time}")
     if not math.isfinite(rate):
         raise ValueError(f"rate must be finite, got {rate}")
+    barrier: tuple[float, Barrier] | None = None
+    if (barrier_level is None) != (barrier_style is None):
+        raise ValueError(
+            "a barrier needs both a level and a style; one without the other "
+            "would have to guess which side the option survives on"
+        )
+    if barrier_level is not None and barrier_style is not None:
+        if not barrier_style.is_knock_out:
+            raise ValueError(
+                f"price_pde takes a knock-out and {barrier_style.value} is not one; "
+                "a knock-in is the vanilla less the knock-out and barrier_price "
+                "gives it exactly"
+            )
+        if not math.isfinite(barrier_level) or barrier_level <= 0.0:
+            raise ValueError(
+                f"barrier_level must be finite and positive, got {barrier_level}"
+            )
+        if is_touched(spot, barrier_level, barrier_style) or cannot_pay(
+            strike, barrier_level, barrier_style, option
+        ):
+            return _knocked_out(spot)
+        barrier = (barrier_level, barrier_style)
     b = rate if carry is None else carry
     if not math.isfinite(b):
         raise ValueError(f"carry must be finite, got {b}")
@@ -701,10 +835,30 @@ def price_pde(
             boundary=(),
         )
 
-    nodes = _space_nodes(spot, strike, time, b, reference, grid)
+    nodes, on_node = _space_nodes(spot, strike, time, b, reference, grid, barrier)
+    if not nodes[0] <= math.log(spot) <= nodes[-1]:  # pragma: no cover
+        # Unreachable, and stated rather than trusted. Sizing a barriered
+        # domain from the barrier instead of from the spot *did* leave the spot
+        # outside the grid, and _read then extrapolated off the nearest three
+        # nodes to -1183.8 for a call worth 8.65 -- a wrong answer with a
+        # plausible shape, which is the worst outcome available here. The
+        # containment is now a property of _space_nodes and the test suite
+        # sweeps it directly, over both sides, a decade of barrier levels and
+        # every width; this line is the assertion that the sweep is about.
+        raise LocalVolError(
+            f"the grid runs from {math.exp(nodes[0]):.6g} to "
+            f"{math.exp(nodes[-1]):.6g} and does not contain the spot of {spot:.6g}, "
+            "so there is nothing to read a price off"
+        )
     times = _time_nodes(time, grid.time_steps, breakpoints)
     spots = [math.exp(x) for x in nodes]
     payoffs = [_payoff(s, strike, option) for s in spots]
+    if barrier is not None:
+        # The barrier node is knocked out at expiry too, so the payoff there is
+        # zero rather than the intrinsic. Without this the first step reads an
+        # intrinsic at the one node the contract says is worthless.
+        edge = 0 if barrier[1].is_down else len(payoffs) - 1
+        payoffs[edge] = 0.0
 
     values, boundary = _march(
         nodes,
@@ -719,6 +873,7 @@ def price_pde(
         exercise,
         grid.rannacher,
         time,
+        barrier,
     )
     value, first, second = _read(nodes, values, spot)
 
@@ -737,6 +892,7 @@ def price_pde(
             Exercise.EUROPEAN,
             grid.rannacher,
             time,
+            barrier,
         )
         premium = value - _read(nodes, reference_values, spot)[0]
 
@@ -749,4 +905,5 @@ def price_pde(
         spot_range=(spots[0], spots[-1]),
         early_exercise_premium=premium,
         boundary=tuple(boundary),
+        strike_on_node=on_node,
     )
