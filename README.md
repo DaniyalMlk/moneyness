@@ -758,6 +758,94 @@ moneyness variance --forward 102.37 --time 1 --rate 0.03 --vol 0.2 \
 prints the continuous replication with its exact answer and predicted
 truncation, then the listed-strip sum at all three centrings side by side.
 
+## A fourteenth decision: three derivations for one price
+
+A barrier option is the first contract here that depends on where the path went
+rather than only on where it ended, so the reflection principle has to come in.
+`moneyness.barrier` gives the eight standard single-barrier Europeans in closed
+form, and the table they come from is self-consistent: `in + out = vanilla`
+holds algebraically for all eight, so asserting it to 7.1e-15 catches a term
+copied with the wrong sign and nothing more. It cannot catch the table being
+the wrong table.
+
+So the same contract is priced two other ways, and neither shares a derivation
+with the formula. `price_pde` now takes a knock-out and marches a grid
+backwards with a Dirichlet condition at the barrier; across seven contracts it
+converges on the closed forms at ratios of **4.00** under doubling of both mesh
+dimensions, which is the order the scheme supports, so the two agree at the
+mesh's own accuracy rather than to a chosen tolerance. And `monte_carlo.barrier`
+with its Brownian bridge reaches them from paths, within **0.8 standard errors**
+across all four styles. A formula, a grid and a simulation.
+
+```bash
+moneyness barrier --spot 100 --strike 100 --time 1 --rate 0.05   --dividend 0.03 --vol 0.20 --level 120 --barrier up-and-out
+```
+
+### The barrier outranks the strike on the grid, and it is measured
+
+`_space_nodes` has always anchored the lattice on the strike, because the
+payoff kink must sit on a node, and deliberately not on the spot — demanding
+both collapsed the spacing, and a strike 1% from the spot once produced 1781
+nodes where 600 were asked for. A barrier is a third special level and it wins:
+the domain ends *at* the barrier, so a barrier between nodes is a barrier
+moved by up to half a spacing, which is first order in a quantity the price is
+very sensitive to.
+
+Measured on an up-and-out call, displacing the barrier by half a spacing moves
+the price by **35, 69, 137 and 273 times the on-node error** as the mesh refines
+from 200-by-100 to 1600-by-800. The ratio *grows*, which is the signature of the
+lower-order term taking over. Both levels keep their nodes where they are more
+than a step apart, by choosing the number of steps between them rather than the
+spacing; closer than that the node count is capped at twice the request and the
+strike is given up, with `MeshPrice.strike_on_node` saying which happened. That
+cap was eight times the request first, and let a barrier five basis points from
+the strike build 2442 nodes for a request of 400 — the same collapse the strike
+anchoring exists to avoid, under a guard meant to prevent it.
+
+The bug worth recording was in the domain, not the spacing. Its reach was sized
+from the barrier rather than from the spot, so a barrier at ten times the spot
+put the whole grid above the spot: the quadratic read extrapolated off the
+nearest three nodes and returned **-1183.8 for a call worth 8.65**. A wrong
+answer with a plausible shape is the worst outcome this code can produce. The
+only test that would have caught it was the one comparing a distant barrier
+against the unbarriered solve — every comparison against the closed form uses a
+barrier within 20% of the spot, where the mis-sized domain still happened to
+contain it. The containment is now swept directly over both sides, barriers from
+1% away to ten times the spot, four widths and four node counts.
+
+### A knock-out is the one price here that falls as volatility rises
+
+Everything else in this package is increasing in volatility. An up-and-out call
+peaks at a volatility of **7.51%** and falls away on both sides: on a spot of
+100, a strike of 100, a barrier of 120 and a year to run it is worth 3.435 at
+the peak, then 3.117, 1.923, 1.107, 0.662, 0.418 and 0.191 at 10% through 40%.
+From the peak to 40% it loses 94% of its value for *more* volatility, because
+the volatility that pays for the optionality also pays for the knock-out. Vega
+is +31.0 at 5% and -11.9 at 20%, so it changes sign inside the range anybody
+quotes, and an implied-volatility solve has two roots or none at almost every
+price. None is offered, and the command line says so where someone would look
+for one.
+
+### The continuity correction's accuracy is simulated, not assumed
+
+A barrier checked at the close is harder to breach than one watched
+continuously, so a knock-out is worth more. `monitoring_shift` applies the
+Broadie-Glasserman-Kou correction — move the level away from the spot by
+`exp(0.5826 sigma sqrt(dt))` and price the continuous contract there — and the
+shift is under a per cent while what it is worth is not: the price is levered
+about eighteen times to the barrier level.
+
+`monte_carlo.barrier` with `bridge=False` prices the genuinely discrete
+contract, which is a different contract and not a worse estimate of the
+continuous one, so it says what the correction is actually worth. The real
+effect is **+13.3%, +28.3% and +54.7%** over continuous monitoring for daily,
+weekly and monthly checks. And the correction itself is **-0.33%** off daily,
+**+0.92%** weekly and **+6.82%** monthly — excellent daily, fine weekly, and at
+monthly monitoring it overstates the contract by seven per cent. Still far
+better than ignoring the effect, which understates the monthly contract by
+thirty-five, but not a number to quote. Simulate that one, and the docstring
+and the command line both say so.
+
 ## Running the tests
 
 ```bash

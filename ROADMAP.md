@@ -409,3 +409,84 @@ and that level is ramping, so the local variance falls by about a quarter from
 the origin to the first quote. At the money the denominator does tend to one,
 so the local variance there tends to the front slice's own at-the-money implied
 variance — an exact limit, now asserted as one.
+
+## Phase 14 — Where the path went, not just where it ended
+
+- [x] The eight standard single-barrier Europeans in closed form, with the
+      ``in`` and the ``out`` forms each written out rather than subtracted
+- [x] The package's existing barrier vocabulary reused rather than a second one
+      invented
+- [x] The structural cases answered exactly: the spot on the barrier, and a
+      knock-out that cannot pay without breaching
+- [x] A knock-out in the finite-difference solver, with the barrier on a node
+      and the domain ending there
+- [x] The closed forms checked against the solver as a convergence order, and
+      against the existing simulation as a z-score
+- [x] Discrete monitoring, with the continuity correction's own accuracy
+      measured against the discrete contract rather than assumed
+- [x] A command-line entry point that shows the price turning over in
+      volatility
+
+This is the first contract here that depends on the running extreme rather than
+on the terminal distribution alone. The closed form's own parity identity is
+worth having and is weaker than it looks: the table is algebraically consistent
+with ``in + out = vanilla``, so asserting it to **7.1e-15** catches a term
+copied with the wrong sign and cannot catch the table being the wrong table.
+
+**So the price has three derivations.** The solver marches a grid backwards with
+a Dirichlet condition at the barrier and converges on the closed forms at
+**ratios of 4.00** under doubling of both mesh dimensions — the order the scheme
+supports, so the two agree at the mesh's own accuracy rather than to a chosen
+tolerance. `monte_carlo.barrier` reaches them from paths through a Brownian
+bridge, within **0.8 standard errors** on all four styles. Nothing is shared
+between the three.
+
+**The barrier outranks the strike on the grid, and by how much is measured.**
+The domain ends at the barrier, so a barrier between nodes is a barrier moved by
+up to half a spacing — first order, against the kink's second order. Displacing
+it by half a spacing moves the price by **35, 69, 137 and 273 times** the
+on-node error as the mesh refines, the ratio growing because the lower-order
+term is taking over. Both levels keep their nodes where they are more than a
+step apart, by choosing the number of steps between them rather than the
+spacing; closer, the node count is capped at twice the request and the strike is
+given up. That cap was eight times the request first and let a barrier five
+basis points from the strike build 2442 nodes for a request of 400, which is the
+same collapse the strike anchoring was written to avoid, under a guard meant to
+prevent it.
+
+**The bug was in the domain, not the spacing**, and it produced the worst kind of
+wrong answer. The reach was sized from the barrier rather than from the spot, so
+a barrier at ten times the spot put the whole grid above the spot and the
+quadratic read extrapolated off the nearest three nodes to **-1183.8 for a call
+worth 8.65**. Only one test would have caught it — the one comparing a distant
+barrier against the unbarriered solve, which exists to isolate the plumbing from
+the formula. Every comparison against the closed form uses a barrier within 20%
+of the spot, where the mis-sized domain still contained it. The containment is
+now swept directly over both sides, barriers from 1% away to ten times the spot,
+four widths and four node counts, rather than guarded and hoped for.
+
+**A knock-out is the one price in this package that falls as volatility rises.**
+An up-and-out call peaks at **7.51%** and loses 94% of its value between there
+and 40%, because the volatility paying for the optionality also pays for the
+knock-out. Vega is +31.0 at 5% and -11.9 at 20%, so it changes sign inside the
+quoted range and an implied-volatility solve has two roots or none at almost
+every price. None is offered, and the command line says why where someone would
+look for one.
+
+**And the continuity correction's accuracy is simulated.** A daily close is
+worth +13.3% over continuous monitoring, weekly +28.3% and monthly +54.7%, from
+barrier shifts of 0.737%, 1.63% and 3.42% — the price is levered about eighteen
+times to the level. Against the discrete contract priced directly with the
+bridge turned off, the Broadie-Glasserman-Kou shift is **-0.33%** off daily,
+**+0.92%** weekly and **+6.82%** monthly. Excellent daily, fine weekly, seven
+per cent high monthly. The docstring said "good for daily, rough for monthly"
+before any of this was measured; it now says by how much, and says to simulate
+the monthly case instead of quoting the correction.
+
+One name collision, caught before it shipped. The module arrived with its own
+``Barrier`` dataclass beside ``Side`` and ``Knock``, which collided with
+``monte_carlo.Barrier`` in the package namespace and would have left two ways to
+say "up-and-out" in one library. That is the mistake `tenor.g2` made with a
+call/put flag, and the fix is the same: one vocabulary per package. Reusing the
+enum also gave the simulation the same argument order as the formula, which is
+what made it usable as a check at all.
