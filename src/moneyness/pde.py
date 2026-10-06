@@ -470,7 +470,13 @@ def _space_nodes(
     on_node = step > 0.0 and live / step <= 2.0 * mesh.space_steps
     if not on_node:
         step = coarse
-    reach = max(2, math.ceil(span / step))
+    # Measured from the *barrier*, which is the edge, and it has to reach
+    # ``span`` past the spot on the live side -- not ``span`` past the barrier.
+    # Sizing it from the barrier alone put a barrier at ten times the spot
+    # outside a domain that then did not contain the spot at all, and the
+    # solver read a value off three nodes it had no business interpolating
+    # between: -1183.8 for a call worth 8.65.
+    reach = max(2, math.ceil(live / step))
     if knockout.side is Side.DOWN:
         return [edge + i * step for i in range(reach + 1)], on_node
     return [edge - i * step for i in range(reach, -1, -1)], on_node
@@ -815,6 +821,20 @@ def price_pde(
         )
 
     nodes, on_node = _space_nodes(spot, strike, time, b, reference, grid, barrier)
+    if not nodes[0] <= math.log(spot) <= nodes[-1]:  # pragma: no cover
+        # Unreachable, and stated rather than trusted. Sizing a barriered
+        # domain from the barrier instead of from the spot *did* leave the spot
+        # outside the grid, and _read then extrapolated off the nearest three
+        # nodes to -1183.8 for a call worth 8.65 -- a wrong answer with a
+        # plausible shape, which is the worst outcome available here. The
+        # containment is now a property of _space_nodes and the test suite
+        # sweeps it directly, over both sides, a decade of barrier levels and
+        # every width; this line is the assertion that the sweep is about.
+        raise LocalVolError(
+            f"the grid runs from {math.exp(nodes[0]):.6g} to "
+            f"{math.exp(nodes[-1]):.6g} and does not contain the spot of {spot:.6g}, "
+            "so there is nothing to read a price off"
+        )
     times = _time_nodes(time, grid.time_steps, breakpoints)
     spots = [math.exp(x) for x in nodes]
     payoffs = [_payoff(s, strike, option) for s in spots]
