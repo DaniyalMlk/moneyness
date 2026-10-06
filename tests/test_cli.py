@@ -902,3 +902,92 @@ def test_surface_reprices_its_own_quotes_through_the_local_volatility(
     assert float(worst[0].split(":")[1]) < 5e-3
     # Every quote got an answer rather than a dash.
     assert " --  " not in out
+
+
+def _barrier_argv(*extra: str) -> list[str]:
+    """The base command, with later flags overriding the defaults here.
+
+    argparse takes the last occurrence, so an extra ``--level`` wins over the
+    one below without the helper needing to know which flags were overridden.
+    """
+    return [
+        "barrier", "--spot", "100", "--strike", "100", "--time", "1",
+        "--rate", "0.05", "--dividend", "0.03", "--vol", "0.20",
+        "--level", "120", "--barrier", "up-and-out", *extra,
+    ]
+
+
+def test_barrier_reports_both_halves_and_the_parity_residual(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(_barrier_argv()) == 0
+    out = capsys.readouterr().out
+    assert "up-and-out call at 120" in out
+    assert "up-and-in" in out
+    assert "parity residual" in out
+    # The residual is printed in exponent form and has to be at rounding.
+    line = next(one for one in out.splitlines() if "parity residual" in one)
+    assert abs(float(line.split()[-1])) < 1e-12
+
+
+def test_barrier_shows_the_price_turning_over_in_volatility(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The ladder is the report's reason for existing, so its shape is asserted.
+
+    The knock-out falls across this range while the vanilla rises, and the
+    command says so in words rather than leaving the reader to notice.
+    """
+    assert main(_barrier_argv("--vols", "0.10", "0.20", "0.30")) == 0
+    out = capsys.readouterr().out
+    rows = [
+        one.split()
+        for one in out.splitlines()
+        if one.startswith("      0.")
+    ]
+    assert len(rows) == 3
+    knocked = [float(row[1]) for row in rows]
+    vanillas = [float(row[2]) for row in rows]
+    assert knocked == sorted(knocked, reverse=True)
+    assert vanillas == sorted(vanillas)
+    assert "turns over" in out
+
+
+def test_barrier_prices_the_monitoring_frequencies(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(_barrier_argv("--monitorings", "252", "12")) == 0
+    out = capsys.readouterr().out
+    assert "over continuous" in out
+    assert "+12.9" in out
+    assert "+65.2" in out
+    # And it says how good the correction is rather than implying it is exact.
+    assert "+6.82% monthly" in out
+
+
+def test_barrier_can_omit_the_monitoring_table(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(_barrier_argv("--monitorings")) == 0
+    assert "over continuous" not in capsys.readouterr().out
+
+
+def test_barrier_names_a_structurally_worthless_contract(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Zero with a reason beats zero on its own."""
+    assert main([
+        "barrier", "--spot", "100", "--strike", "130", "--time", "1",
+        "--rate", "0.05", "--vol", "0.20", "--level", "120",
+        "--barrier", "up-and-out",
+    ]) == 0
+    out = capsys.readouterr().out
+    assert "worth exactly nothing" in out
+    assert "requires breaching the barrier" in out
+
+
+def test_barrier_refuses_a_level_that_is_not_one() -> None:
+    with pytest.raises(SystemExit):
+        main(_barrier_argv("--level", "0"))
+    with pytest.raises(SystemExit):
+        main(_barrier_argv("--monitorings", "0"))
