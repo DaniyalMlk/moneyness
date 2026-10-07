@@ -490,3 +490,83 @@ say "up-and-out" in one library. That is the mistake `tenor.g2` made with a
 call/put flag, and the fix is the same: one vocabulary per package. Reusing the
 enum also gave the simulation the same argument order as the formula, which is
 what made it usable as a check at all.
+
+## Phase 15 — A price that can only be bracketed
+
+- [x] The exact first two moments of the discretely monitored arithmetic average
+- [x] Put-call parity for the average, which needs only the first moment
+- [x] A moment-matched lognormal price, with the regime where it fails measured
+      rather than asserted
+- [x] Curran's conditioning lower bound, by one root solve and a sum
+- [x] Rigorous bounds from AM-GM and from convexity, which hold as inequalities
+- [x] The side AM-GM falls on determined by the payoff rather than assumed
+- [x] A command-line entry point that leads with the interval and flags a price
+      that leaves it
+
+Every price before this one is a formula, a grid or a simulation of something
+with a known distribution. The arithmetic average of lognormals has no tractable
+distribution at all, which is why `monte_carlo.asian` existed and nothing
+analytic did. The gap that leaves is not speed. **A simulation cannot bound
+anything:** it returns an estimate and a standard error, so it can say a price is
+probably near a number and never that it is certainly above or below one.
+
+Two bounds here are inequalities rather than approximations, and each rests on a
+statement about the payoff that holds path by path. AM-GM gives `G <= A`, so
+`max(G - K, 0) <= max(A - K, 0)`. Convexity gives
+`max(A - K, 0) <= (1/m) sum_i max(S_i - K, 0)`, so an Asian is worth at most the
+average of ordinary options on its monitoring dates.
+
+**Which side AM-GM falls on depends on the payoff, and that is the trap.** The
+same inequality that makes the geometric *call* cheaper makes the geometric *put*
+dearer, because `max(K - G, 0) >= max(K - A, 0)`. Measured at the money with 20%
+volatility and twelve fixings: a geometric call of 5.9402 under a true 6.1571,
+and a geometric put of 3.6517 *over* a true 3.5355. Treating it as a lower bound
+for both would have looked right on every call that was tried. For a put it is
+therefore an upper bound, and a far better one than convexity — which allows the
+fixings to be independent, where averaging destroys much more variance than that.
+The put's interval is **0.118** wide against the call's **0.681**.
+
+**Conditioning on the geometric average rather than discarding it is worth a
+factor of six hundred.** Curran's bound exercises when `E[A | G] > K`, which is a
+strategy a holder could follow, so its value is below the option's. Because the
+two averages move together it is nearly exact: against two million paths it is
+low by 6.0e-05 relative at 20% volatility, 3.2e-04 at 40% and 1.5e-03 at 80%,
+roughly quadrupling per doubling. At 10% volatility the shortfall came out at 0.3
+standard errors of that run, so it is reported as unresolved rather than as a
+number — an earlier version of the test asserted 5.1e-06 from exactly that draw.
+
+**The moments do three jobs.** `E[S_i S_j] = S^2 exp(b(t_i + t_j) + v^2 min(t_i,
+t_j))` makes both moments finite sums with nothing approximate in them. They give
+parity exactly, which is the one check that applies to the simulation, the bound
+and the approximation alike. They give the moment-matched price. And they give an
+oracle the simulation has to reproduce, which is the only check on that
+simulation that does not pass through another approximation.
+
+They also say why an Asian is cheap: twelve monthly fixings leave a matched
+log-variance of **0.01526** against the terminal price's 0.04 at 20% volatility,
+so an effective volatility of **12.35%**. The dense-fixing limit is the textbook
+`v^2 T / 3`, approached as `1/3 + 1/(2m)` — at three thousand fixings that
+predicts 0.333500 against a measured **0.333503**. That third is a *zero-carry*
+statement: at a 5% cost of carry the limit sits at 0.3377 instead, because
+`exp(b t)` weights the later and more variable part of the path more heavily. The
+test asserted a third with a carry in force and failed by eight times its own
+tolerance.
+
+**Moment matching's error changes sign twice, so no tolerance describes it.** At
+the money it reads high — 6.1e-04, 1.4e-03, 3.0e-03, 8.5e-03 and 3.0e-02 relative
+at 5%, 10%, 20%, 40% and 80% volatility over a year, two to three times worse per
+doubling rather than the order of magnitude the shape of the problem suggests. Out
+of the money it reads **low enough to break the lower bound**: a call struck at
+120 against a spot of 100 is 9.2% below Curran's bound at 10% volatility, 3.4%
+below at 20%, 1.8% at 30% and 0.79% at 40%.
+
+Then it crosses. At 60% the same option is 0.9% *above* the bound and at 80% it is
+2.7% above, so the shrinking violations at moderate volatility point the wrong way
+about what happens next. The 40% figure was first recorded as 7.9% from misreading
+`-7.86e-03` as a percentage, which made the trend look monotone and hid the
+crossing entirely.
+
+That is what the bounds are for. Nothing else in the module could tell that the
+moment-matched price at 120 is wrong, because there is no closed form to compare
+it against and the simulation's standard error is wider than the error being
+looked for at low volatility. A rigorous inequality can.

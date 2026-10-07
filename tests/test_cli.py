@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import math
 import pathlib
+import re
 
 import pytest
 
@@ -991,3 +992,93 @@ def test_barrier_refuses_a_level_that_is_not_one() -> None:
         main(_barrier_argv("--level", "0"))
     with pytest.raises(SystemExit):
         main(_barrier_argv("--monitorings", "0"))
+
+
+def test_asian_reports_the_interval_before_the_price(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The bounds lead, because an interval is what can be stated about an average."""
+    assert (
+        main(
+            [
+                "asian",
+                "--spot", "100", "--strike", "100", "--time", "1",
+                "--rate", "0.05", "--vol", "0.2", "--fixings", "12",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "lower (Curran)" in out
+    assert "interval width" in out
+    assert "below by AM-GM" in out
+    assert "moment matched" in out
+    assert "(exact)" in out
+    # the average is less volatile than the terminal price, so the Asian is cheaper
+    labelled: dict[str, str] = {}
+    for line in out.splitlines():
+        match = re.match(r"\s*(\S.*?)\s\s+(\S+)", line)
+        if match is not None:
+            labelled[match.group(1)] = match.group(2)
+    assert float(labelled["lower (Curran)"]) < float(labelled["vanilla"])
+    assert float(labelled["effective vol"]) < 0.2
+
+
+def test_asian_flags_a_moment_matched_price_outside_the_bounds(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The violation is the point of computing the bounds, so it has to be visible."""
+    assert (
+        main(
+            [
+                "asian",
+                "--spot", "100", "--strike", "120", "--time", "1",
+                "--rate", "0.05", "--vol", "0.2",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "outside the bounds, below the lower bound by" in out
+
+
+def test_asian_puts_report_the_geometric_price_as_an_upper_bound(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        main(
+            [
+                "asian", "--put",
+                "--spot", "100", "--strike", "100", "--time", "1",
+                "--rate", "0.05", "--vol", "0.2",
+            ]
+        )
+        == 0
+    )
+    assert "above by AM-GM" in capsys.readouterr().out
+
+
+def test_asian_fixing_table_shows_the_bounds_tightening(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        main(
+            [
+                "asian", "--fixing-table",
+                "--spot", "100", "--strike", "100", "--time", "1",
+                "--rate", "0.05", "--vol", "0.2",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "fixings" in out
+    rows = [
+        line.split()
+        for line in out.splitlines()
+        if line.strip() and line.split()[0].isdigit()
+    ]
+    assert [row[0] for row in rows] == ["1", "2", "4", "12", "52", "252"]
+    # a call on a denser average is cheaper, and the single fixing is the vanilla
+    lowers = [float(row[1]) for row in rows]
+    assert lowers == sorted(lowers, reverse=True)

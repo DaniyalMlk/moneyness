@@ -24,6 +24,12 @@ from pathlib import Path
 
 from . import __version__
 from .american import bjerksund_stensland, bjerksund_stensland_2002, trigger_price
+from .asian import (
+    average_moments,
+    parity_difference,
+    price_bounds,
+    turnbull_wakeman,
+)
 from .barrier import barrier_price, is_structurally_worthless, monitoring_shift
 from .bsm import Inputs, OptionType, forward, parity_gap, price
 from .greeks import (
@@ -770,6 +776,65 @@ def _run_barrier(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_asian(args: argparse.Namespace) -> int:
+    """An average-price option, with the interval its price is known to lie in.
+
+    The report leads with the bounds rather than with a price, because that is
+    what distinguishes this instrument from the rest of the package: there is no
+    closed form, so what can be stated is an interval and a bound inside it.
+
+    The moment-matched price is shown last and flagged when it leaves that
+    interval, which it does out of the money at moderate volatility. That is the
+    whole reason the bounds are computed: moment matching is what most systems
+    use and nothing but a rigorous bound can tell you when it has gone wrong.
+    """
+    inputs = _inputs_of(args)
+    option = _option_of(args)
+    steps = args.fixings
+
+    moments = average_moments(inputs, steps)
+    bounds = price_bounds(inputs, option, steps)
+    matched = turnbull_wakeman(inputs, option, steps)
+    vanilla = price(inputs, option)
+    terminal = inputs.vol * inputs.vol * inputs.time
+
+    print(f"{'contract':>22}  {option.value} on the average of {steps} fixings")
+    print(f"{'average forward':>22}  {moments.first:.10f}")
+    print(f"{'effective vol':>22}  {math.sqrt(moments.log_variance / inputs.time):.10f}")
+    print(
+        f"{'variance kept':>22}  {moments.log_variance / terminal:.6f}"
+        "  of the terminal price's"
+    )
+    print()
+    print(f"{'lower (Curran)':>22}  {bounds.lower:.10f}")
+    print(f"{'upper':>22}  {bounds.upper:.10f}")
+    print(f"{'interval width':>22}  {bounds.width:.10f}")
+    print(
+        f"{'geometric':>22}  {bounds.geometric:.10f}"
+        f"  ({'below' if option is OptionType.CALL else 'above'} by AM-GM)"
+    )
+    print()
+    print(f"{'moment matched':>22}  {matched:.10f}")
+    if not bounds.brackets(matched, tolerance=1e-12):
+        low = matched < bounds.lower
+        side = "below the lower" if low else "above the upper"
+        miss = bounds.lower - matched if low else matched - bounds.upper
+        print(f"{'':>22}  outside the bounds, {side} bound by {miss:.3e}")
+    print(f"{'vanilla':>22}  {vanilla:.10f}")
+    print(f"{'call - put':>22}  {parity_difference(inputs, steps):.10f}  (exact)")
+
+    if args.fixing_table:
+        print()
+        print(f"{'fixings':>10}{'lower':>16}{'upper':>16}{'width':>14}{'matched':>16}")
+        for count in (1, 2, 4, 12, 52, 252):
+            table = price_bounds(inputs, option, count)
+            print(
+                f"{count:>10}{table.lower:>16.10f}{table.upper:>16.10f}"
+                f"{table.width:>14.10f}{turnbull_wakeman(inputs, option, count):>16.10f}"
+            )
+    return 0
+
+
 def _run_heston_path(args: argparse.Namespace) -> int:
     """A payoff the transform cannot reach, simulated under stochastic volatility.
 
@@ -1350,6 +1415,36 @@ def _parser() -> argparse.ArgumentParser:
         help="leave the drift uncorrected, so the simulated forward is only approximate",
     )
     path_parser.set_defaults(handler=_run_heston_path)
+
+    asian_parser = sub.add_parser(
+        "asian",
+        help="an average-price option, with the interval its price lies in",
+        description=(
+            "Prices an arithmetic-average option. There is no closed form, so the "
+            "report leads with rigorous bounds -- Curran's conditioning bound "
+            "below, convexity or AM-GM above -- and shows the moment-matched "
+            "price inside them, flagged when it falls outside. Moment matching "
+            "breaks the lower bound out of the money at moderate volatility, "
+            "which is what the bounds are for."
+        ),
+    )
+    _add_market(asian_parser)
+    asian_parser.add_argument(
+        "--vol", type=float, required=True, help="annualised lognormal volatility"
+    )
+    asian_parser.add_argument(
+        "--fixings",
+        type=int,
+        default=12,
+        help="equally spaced monitoring dates, the last at expiry",
+    )
+    asian_parser.add_argument(
+        "--fixing-table",
+        action="store_true",
+        dest="fixing_table",
+        help="also show how the bounds tighten as the fixings get dense",
+    )
+    asian_parser.set_defaults(handler=_run_asian)
 
     variance_parser = sub.add_parser(
         "variance",
