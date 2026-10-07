@@ -5,6 +5,16 @@ and its market, and free functions over it.
 """
 
 from .american import bjerksund_stensland, bjerksund_stensland_2002, trigger_price
+from .asian import (
+    AsianBounds,
+    AverageMoments,
+    average_moments,
+    curran,
+    monitoring_times,
+    parity_difference,
+    price_bounds,
+    turnbull_wakeman,
+)
 from .barrier import (
     BARRIER_DIGITS,
     BarrierError,
@@ -137,6 +147,8 @@ __version__ = "0.1.0"
 __all__ = [
     "BARRIER_DIGITS",
     "SVI",
+    "AsianBounds",
+    "AverageMoments",
     "BadStrip",
     "Barrier",
     "BarrierError",
@@ -180,6 +192,7 @@ __all__ = [
     "__version__",
     "adaptive_quad",
     "asian",
+    "average_moments",
     "bachelier",
     "bachelier_vega",
     "barrier",
@@ -197,6 +210,7 @@ __all__ = [
     "colour",
     "conditional_mean",
     "conditional_variance",
+    "curran",
     "d1_d2",
     "delta",
     "density",
@@ -226,13 +240,16 @@ __all__ = [
     "lognormal_volatility",
     "min_steps",
     "monitoring_shift",
+    "monitoring_times",
     "norm_cdf",
     "norm_cdf2",
     "norm_pdf",
     "norm_ppf",
     "normal_volatility",
+    "parity_difference",
     "parity_gap",
     "price",
+    "price_bounds",
     "price_lattice",
     "price_pde",
     "reflected_beyond_term",
@@ -248,6 +265,7 @@ __all__ = [
     "theta",
     "trigger_price",
     "truncation_error",
+    "turnbull_wakeman",
     "vanilla_term",
     "vanna",
     "variance_path",

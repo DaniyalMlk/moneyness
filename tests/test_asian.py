@@ -127,7 +127,29 @@ def test_one_fixing_reduces_to_the_terminal_price() -> None:
         vanilla = price(inputs, option)
         assert turnbull_wakeman(inputs, option, 1) == pytest.approx(vanilla, rel=1e-12)
         assert geometric_asian(inputs, option, 1) == pytest.approx(vanilla, rel=1e-12)
-        assert curran(inputs, option, 1) == pytest.approx(vanilla, rel=1e-6)
+        assert curran(inputs, option, 1) == pytest.approx(vanilla, rel=1e-12)
+
+
+def test_a_single_fixing_collapses_the_interval_to_a_point() -> None:
+    """And the two bounds may then cross by rounding, which is worth stating.
+
+    With one fixing there is no averaging, so Curran's bound, the convexity bound
+    and the vanilla price are all the same number — and ``width`` comes out at
+    plus or minus a few parts in a hundred trillion rather than at exactly zero.
+    Measured at most 7.5e-14 across nine strike and volatility combinations.
+    Clamping it to zero would hide the only evidence that the bisection and the
+    closed form agree to the last bits they can.
+    """
+    worst = 0.0
+    for strike in (80.0, 100.0, 120.0):
+        for vol in (0.1, 0.2, 0.8):
+            inputs = market(strike=strike, vol=vol)
+            vanilla = price(inputs, OptionType.CALL)
+            bounds = price_bounds(inputs, OptionType.CALL, 1)
+            assert bounds.lower == pytest.approx(vanilla, rel=1e-12)
+            assert bounds.upper == pytest.approx(vanilla, rel=1e-12)
+            worst = max(worst, abs(bounds.width))
+    assert worst < 1e-12
 
 
 def test_the_second_moment_exceeds_the_square_of_the_first() -> None:

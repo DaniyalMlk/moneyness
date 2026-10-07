@@ -846,6 +846,97 @@ better than ignoring the effect, which understates the monthly contract by
 thirty-five, but not a number to quote. Simulate that one, and the docstring
 and the command line both say so.
 
+## A fifteenth decision: bound it, because it cannot be priced
+
+Every price above is a formula, a grid or a simulation of something whose
+distribution is known. The arithmetic average of lognormals has no tractable
+distribution, which is why `monte_carlo.asian` simulated it and nothing computed
+it. The gap that leaves is not speed. **A simulation cannot bound anything** — it
+returns an estimate and a standard error, so it can say a price is probably near
+a number and never that it is certainly above or below one.
+
+`moneyness.asian` gives two bounds that are inequalities rather than
+approximations, each resting on a statement about the payoff that holds path by
+path. AM-GM: `G <= A`, so the geometric call is cheaper. Convexity: the positive
+part of an average is at most the average of the positive parts, so an Asian is
+worth at most the average of ordinary options on its monitoring dates. Between
+them sits Curran's bound, which conditions on the geometric average instead of
+discarding it.
+
+```python
+from moneyness import Inputs, OptionType, price_bounds, turnbull_wakeman
+
+contract = Inputs(spot=100.0, strike=100.0, time=1.0, rate=0.05, vol=0.20)
+bounds = price_bounds(contract, OptionType.CALL, 12)
+
+bounds.lower       # 6.1556 -- Curran's, within 6e-05 relative of the true price
+bounds.upper       # 6.8370
+bounds.geometric   # 5.9402 -- below, by AM-GM, for a call
+turnbull_wakeman(contract, OptionType.CALL, 12)   # 6.1742, and high
+```
+
+### Which side AM-GM falls on depends on the payoff
+
+The inequality that makes the geometric **call** cheaper makes the geometric
+**put** dearer, since `max(K - G, 0) >= max(K - A, 0)`. At the money with 20%
+volatility and twelve fixings: a geometric call of 5.9402 under a true 6.1571, and
+a geometric put of 3.6517 *over* a true 3.5355. Treating it as a lower bound for
+both sides would have looked right on every call that was tried.
+
+For a put it is therefore an upper bound, and a much better one than convexity —
+which allows the fixings to be independent, where averaging destroys far more
+variance than that. The put's interval comes out **0.118** wide against the call's
+**0.681**, so it is the one used.
+
+### Conditioning is worth a factor of six hundred
+
+Curran's bound exercises when `E[A | G] > K`. That is a strategy a holder could
+follow, so its value is below the option's, and because the two averages move
+together it is nearly exact. Against two million paths it is low by 6.0e-05
+relative at 20% volatility, 3.2e-04 at 40% and 1.5e-03 at 80% — against the
+geometric bound's 0.2154 at the money, a factor of about six hundred. At 10%
+volatility the shortfall sits at 0.3 standard errors of that run, so it is
+reported as unresolved rather than as a number.
+
+### The moments are exact, and they say why an Asian is cheap
+
+`E[S_i S_j] = S^2 exp(b(t_i + t_j) + v^2 min(t_i, t_j))` makes both moments finite
+sums. Twelve monthly fixings leave the average with a matched log-variance of
+**0.01526** against the terminal price's 0.04 at 20% volatility — an effective
+volatility of **12.35%**. The dense-fixing limit is the textbook `v^2 T / 3`,
+approached as `1/3 + 1/(2m)`: at three thousand fixings that predicts 0.333500
+against a measured **0.333503**.
+
+That third is a *zero-carry* statement. At a 5% cost of carry the limit sits at
+0.3377, because `exp(b t)` weights the later and more variable part of the path
+more heavily. The test asserted a third with a carry in force and failed by eight
+times its tolerance.
+
+### Moment matching's error changes sign twice
+
+At the money it reads high — 6.1e-04, 1.4e-03, 3.0e-03, 8.5e-03 and 3.0e-02
+relative at 5%, 10%, 20%, 40% and 80% volatility over a year, two to three times
+worse per doubling. Out of the money it reads **low enough to break the lower
+bound**: a call struck at 120 against a spot of 100 comes out 9.2% below Curran's
+bound at 10% volatility, 3.4% below at 20% and 0.79% below at 40%.
+
+Then it crosses: at 60% the same option is 0.9% *above* the bound and at 80% it is
+2.7% above. So the shrinking violations at moderate volatility point the wrong way
+about what happens next. The 40% figure was first written down as 7.9%, from
+misreading `-7.86e-03` as a percentage, which made the trend look monotone and hid
+the crossing.
+
+An error that is positive at one strike and negative at another, and that reverses
+again in volatility, cannot be quoted as a tolerance — so none is. The bounds say
+when it has gone wrong instead, which nothing else here could: there is no closed
+form to compare against, and at low volatility the simulation's standard error is
+wider than the error being looked for.
+
+```bash
+moneyness asian --spot 100 --strike 120 --time 1 --rate 0.05 --vol 0.20 \
+  --fixings 12 --fixing-table
+```
+
 ## Running the tests
 
 ```bash
@@ -912,6 +1003,17 @@ The round trip is the point: a surface's own local volatility reproduces the
 surface to within 1.5e-03 in volatility, and the two ways of getting it wrong —
 reading the moneyness from the spot, and taking the surface literally below its
 first quote — are both measured rather than warned about.
+
+Phase 14 adds barrier options, the first contract here that depends on where the
+path went: the eight closed forms, a knock-out in the solver, and the existing
+simulation, all three agreeing.
+
+Phase 15 is the first price in the package that cannot be computed at all, only
+bracketed. The arithmetic average of lognormals has no tractable distribution, so
+`moneyness.asian` supplies the exact moments, Curran's conditioning lower bound,
+and rigorous bounds from AM-GM and convexity — which is what lets it show that
+the moment-matched price every trading system uses falls *below* a rigorous lower
+bound out of the money, by 3.4% at 20% volatility.
 
 Every item on [the roadmap](ROADMAP.md) is now done except the first release
 on the package index, which waits on the publisher being registered there.
