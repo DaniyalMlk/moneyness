@@ -124,6 +124,26 @@ from .sabr import (
     normal_volatility,
     shifted_lognormal_volatility,
 )
+
+# ``spread.FLOOR_EPSILONS``, ``spread.half_space_value`` and
+# ``spread.vanilla_split`` stay inside the module. The first two are the
+# internals of a bound rather than the bound itself, and ``vanilla_split``
+# answers a question -- where to split a super-replicating portfolio -- that
+# only makes sense alongside the bound it serves.
+from .spread import (
+    AssetPair,
+    SpreadBounds,
+    SpreadError,
+    accuracy_floor,
+    critical_states,
+    exchange,
+    half_space_bound,
+    kirk,
+    spread_bounds,
+    spread_price,
+    truncation_bound,
+    vanilla_upper_bound,
+)
 from .surface import Calendar, LocalVol, Surface
 from .svi import SVI, Butterfly, Fit, calibrate, density, durrleman
 from .variance import (
@@ -148,6 +168,7 @@ __all__ = [
     "BARRIER_DIGITS",
     "SVI",
     "AsianBounds",
+    "AssetPair",
     "AverageMoments",
     "BadStrip",
     "Barrier",
@@ -185,11 +206,14 @@ __all__ = [
     "Smile",
     "SmilePoint",
     "Solution",
+    "SpreadBounds",
+    "SpreadError",
     "Strip",
     "Surface",
     "VarianceSwap",
     "VolatilitySwap",
     "__version__",
+    "accuracy_floor",
     "adaptive_quad",
     "asian",
     "average_moments",
@@ -210,6 +234,7 @@ __all__ = [
     "colour",
     "conditional_mean",
     "conditional_variance",
+    "critical_states",
     "curran",
     "d1_d2",
     "delta",
@@ -220,6 +245,7 @@ __all__ = [
     "dupire_local_vol",
     "durrleman",
     "european",
+    "exchange",
     "fair_variance",
     "fair_variance_from_strip",
     "fixed_quad",
@@ -229,12 +255,14 @@ __all__ = [
     "gauss_legendre",
     "geometric_asian",
     "gil_pelaez_price",
+    "half_space_bound",
     "implied_normal_vol",
     "implied_vol",
     "integrated_variance_variance",
     "intrinsic",
     "is_structurally_worthless",
     "is_touched",
+    "kirk",
     "lewis_price",
     "log_moneyness",
     "lognormal_volatility",
@@ -262,11 +290,15 @@ __all__ = [
     "smile",
     "solve",
     "speed",
+    "spread_bounds",
+    "spread_price",
     "theta",
     "trigger_price",
+    "truncation_bound",
     "truncation_error",
     "turnbull_wakeman",
     "vanilla_term",
+    "vanilla_upper_bound",
     "vanna",
     "variance_path",
     "vega",

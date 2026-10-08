@@ -131,7 +131,7 @@ from .quadrature import fixed_quad
 
 __all__ = [
     "FLOOR_EPSILONS",
-    "Pair",
+    "AssetPair",
     "SpreadBounds",
     "SpreadError",
     "accuracy_floor",
@@ -183,7 +183,7 @@ def _safe_exp(x: float) -> float:
 
 
 @dataclass(frozen=True, slots=True)
-class Pair:
+class AssetPair:
     """Two lognormal assets and the option's market state.
 
     The assets enter only through their forwards, so a carry rate for each is
@@ -232,7 +232,7 @@ class Pair:
         correlation: float,
         carry1: float = 0.0,
         carry2: float = 0.0,
-    ) -> Pair:
+    ) -> AssetPair:
         """Build a pair from spots and a cost of carry for each asset."""
         return cls(
             spot1 * math.exp(carry1 * time),
@@ -274,13 +274,13 @@ class Pair:
         """True when the terminal spread carries no uncertainty."""
         return self.time == 0.0 or (self.vol1 == 0.0 and self.vol2 == 0.0)
 
-    def swapped(self) -> Pair:
+    def swapped(self) -> AssetPair:
         """The same market with the two assets exchanged.
 
         ``max(S2 - S1, 0)`` is the exchange option on the swapped pair, which
         is how the put side of the bracket is built.
         """
-        return Pair(
+        return AssetPair(
             self.forward2,
             self.forward1,
             self.time,
@@ -309,7 +309,7 @@ def _norm_pdf(x: float) -> float:
     return math.exp(-0.5 * x * x) / math.sqrt(2.0 * math.pi)
 
 
-def exchange(pair: Pair) -> float:
+def exchange(pair: AssetPair) -> float:
     """Margrabe's price for ``max(S1 - S2, 0)``, exactly.
 
     The ratio of two lognormals is lognormal, so an option to exchange one for
@@ -330,7 +330,7 @@ def exchange(pair: Pair) -> float:
     return discount * (pair.forward1 * norm_cdf(d1) - pair.forward2 * norm_cdf(d2))
 
 
-def kirk(pair: Pair, strike: float, *, call: bool = True) -> float:
+def kirk(pair: AssetPair, strike: float, *, call: bool = True) -> float:
     """Kirk's approximation to the spread option price.
 
     ``S2 + K`` is replaced by a lognormal with the same mean and with its
@@ -356,7 +356,7 @@ def kirk(pair: Pair, strike: float, *, call: bool = True) -> float:
     return pair.discount * _black(pair.forward1, shifted, total, sign)
 
 
-def critical_states(pair: Pair, strike: float, width: float) -> tuple[float, ...]:
+def critical_states(pair: AssetPair, strike: float, width: float) -> tuple[float, ...]:
     """Values of ``z`` in ``[-width, width]`` where the conditional option is at the money.
 
     ``F1(z) - S2(z) - K`` is a difference of two exponentials less a constant,
@@ -404,7 +404,7 @@ def critical_states(pair: Pair, strike: float, width: float) -> tuple[float, ...
     return tuple(sorted(roots))
 
 
-def truncation_bound(pair: Pair, strike: float, width: float, *, call: bool = True) -> float:
+def truncation_bound(pair: AssetPair, strike: float, width: float, *, call: bool = True) -> float:
     """An upper bound on the part of the price outside ``|z| <= width``.
 
     A spread call pays at most ``S1``, so the discarded mass is at most
@@ -428,7 +428,7 @@ def truncation_bound(pair: Pair, strike: float, width: float, *, call: bool = Tr
     return discount * (pair.forward2 * tail + constant)
 
 
-def accuracy_floor(pair: Pair, strike: float, *, call: bool = True) -> float:
+def accuracy_floor(pair: AssetPair, strike: float, *, call: bool = True) -> float:
     """Below this absolute error :func:`spread_price` resolves nothing.
 
     Reported rather than enforced, because truncation and round-off are
@@ -439,7 +439,7 @@ def accuracy_floor(pair: Pair, strike: float, *, call: bool = True) -> float:
     return FLOOR_EPSILONS * 2.220446049250313e-16 * pair.discount * scale
 
 
-def _solve_width(pair: Pair, strike: float, tolerance: float, *, call: bool) -> float:
+def _solve_width(pair: AssetPair, strike: float, tolerance: float, *, call: bool) -> float:
     """Smallest width whose truncation bound is within ``tolerance``.
 
     The bound underflows to exactly zero by a width of 39 for any pair whose
@@ -468,7 +468,7 @@ def _solve_width(pair: Pair, strike: float, tolerance: float, *, call: bool) -> 
 
 
 def spread_price(
-    pair: Pair,
+    pair: AssetPair,
     strike: float,
     *,
     call: bool = True,
@@ -533,7 +533,7 @@ def spread_price(
 
 
 def half_space_value(
-    pair: Pair, strike: float, angle: float, offset: float, *, call: bool = True
+    pair: AssetPair, strike: float, angle: float, offset: float, *, call: bool = True
 ) -> float:
     """Value of exercising on the half-space ``{n . Z >= offset}``.
 
@@ -554,7 +554,7 @@ def half_space_value(
     return pair.discount * max(value, 0.0)
 
 
-def half_space_bound(pair: Pair, strike: float, *, call: bool = True) -> float:
+def half_space_bound(pair: AssetPair, strike: float, *, call: bool = True) -> float:
     """The best sub-replicating half-space, as a rigorous lower bound.
 
     A grid over direction and offset followed by a shrinking pattern search.
@@ -594,7 +594,7 @@ def half_space_bound(pair: Pair, strike: float, *, call: bool = True) -> float:
     return max(best, 0.0)
 
 
-def vanilla_split(pair: Pair, strike: float) -> float:
+def vanilla_split(pair: AssetPair, strike: float) -> float:
     """The level ``a`` at which the super-replicating vanillas are cheapest.
 
     For any ``a``, ``max(S1 - S2 - K, 0) <= max(S1 - a, 0) + max(a - S2 - K, 0)``
@@ -640,7 +640,7 @@ def vanilla_split(pair: Pair, strike: float) -> float:
     return 0.5 * (low + high)
 
 
-def vanilla_upper_bound(pair: Pair, strike: float, *, call: bool = True) -> float:
+def vanilla_upper_bound(pair: AssetPair, strike: float, *, call: bool = True) -> float:
     """A rigorous upper bound built from two vanilla options.
 
     The super-replicating portfolio of :func:`vanilla_split` uses no
@@ -685,7 +685,7 @@ class SpreadBounds:
         return self.lower - slack <= price <= self.upper + slack
 
 
-def _domination_upper(pair: Pair, strike: float, *, call: bool) -> float:
+def _domination_upper(pair: AssetPair, strike: float, *, call: bool) -> float:
     """The upper bound available from dominating the payoff outright.
 
     A spread call pays less than the exchange option, less than an ordinary
@@ -709,7 +709,7 @@ def _domination_upper(pair: Pair, strike: float, *, call: bool) -> float:
     )
 
 
-def spread_bounds(pair: Pair, strike: float, *, call: bool = True) -> SpreadBounds:
+def spread_bounds(pair: AssetPair, strike: float, *, call: bool = True) -> SpreadBounds:
     """Bound the spread option price by inequalities on its payoff.
 
     Lower, from sub-replication: a half-space is one exercise strategy, and

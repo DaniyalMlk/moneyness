@@ -12,7 +12,7 @@ from moneyness.normal import norm_cdf
 from moneyness.quadrature import fixed_quad
 from moneyness.spread import (
     FLOOR_EPSILONS,
-    Pair,
+    AssetPair,
     SpreadBounds,
     SpreadError,
     accuracy_floor,
@@ -28,7 +28,7 @@ from moneyness.spread import (
     vanilla_upper_bound,
 )
 
-BASE = Pair(
+BASE = AssetPair(
     forward1=100.0,
     forward2=95.0,
     time=1.0,
@@ -42,9 +42,9 @@ CORRELATIONS = (-0.99, -0.95, -0.8, -0.5, -0.2, 0.0, 0.2, 0.5, 0.8, 0.9, 0.95, 0
 STRIKES = (0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 40.0)
 
 
-def at(correlation: float) -> Pair:
+def at(correlation: float) -> AssetPair:
     """``BASE`` with another correlation."""
-    return Pair(
+    return AssetPair(
         BASE.forward1,
         BASE.forward2,
         BASE.time,
@@ -82,23 +82,23 @@ def test_negative_inputs_rejected(field: str, value: float) -> None:
     }
     kwargs[field] = value
     with pytest.raises(ValueError, match="non-negative"):
-        Pair(**kwargs)
+        AssetPair(**kwargs)
 
 
 @pytest.mark.parametrize("correlation", [-1.5, 1.5, 2.0])
 def test_correlation_outside_the_interval_rejected(correlation: float) -> None:
     with pytest.raises(ValueError, match=r"\[-1, 1\]"):
-        Pair(100.0, 95.0, 1.0, 0.03, 0.3, 0.25, correlation)
+        AssetPair(100.0, 95.0, 1.0, 0.03, 0.3, 0.25, correlation)
 
 
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
 def test_non_finite_inputs_rejected(value: float) -> None:
     with pytest.raises(ValueError, match="finite"):
-        Pair(100.0, 95.0, 1.0, value, 0.3, 0.25, 0.4)
+        AssetPair(100.0, 95.0, 1.0, value, 0.3, 0.25, 0.4)
 
 
 def test_from_spots_applies_each_carry() -> None:
-    pair = Pair.from_spots(100.0, 95.0, 2.0, 0.03, 0.3, 0.25, 0.4, carry1=0.05, carry2=-0.01)
+    pair = AssetPair.from_spots(100.0, 95.0, 2.0, 0.03, 0.3, 0.25, 0.4, carry1=0.05, carry2=-0.01)
     assert pair.forward1 == pytest.approx(100.0 * math.exp(0.10))
     assert pair.forward2 == pytest.approx(95.0 * math.exp(-0.02))
 
@@ -135,7 +135,7 @@ def test_zero_strike_is_margrabe(correlation: float) -> None:
 
 def test_no_volatility_on_the_second_asset_is_a_black_call() -> None:
     """S2 is then a constant, so the spread option is struck at F2 + K."""
-    pair = Pair(100.0, 95.0, 1.0, 0.03, 0.30, 0.0, 0.0)
+    pair = AssetPair(100.0, 95.0, 1.0, 0.03, 0.30, 0.0, 0.0)
     reference = price(Inputs.on_future(100.0, 100.0, 1.0, 0.03, 0.30), OptionType.CALL)
     assert spread_price(pair, 5.0) == pytest.approx(reference, rel=1e-12)
 
@@ -146,7 +146,7 @@ def test_no_volatility_on_the_first_asset_is_a_black_put() -> None:
     This is the reduction in which the integrand is genuinely kinked, so it
     checks the panel edges as well as the decomposition.
     """
-    pair = Pair(100.0, 95.0, 1.0, 0.03, 0.0, 0.25, 0.0)
+    pair = AssetPair(100.0, 95.0, 1.0, 0.03, 0.0, 0.25, 0.0)
     reference = price(Inputs.on_future(95.0, 95.0, 1.0, 0.03, 0.25), OptionType.PUT)
     assert spread_price(pair, 5.0) == pytest.approx(reference, rel=1e-12)
 
@@ -170,20 +170,20 @@ def test_kirk_collapses_to_margrabe_at_a_zero_strike() -> None:
 
 @pytest.mark.parametrize("strike", [0.0, 5.0, 20.0])
 def test_degenerate_pair_is_discounted_intrinsic(strike: float) -> None:
-    flat = Pair(100.0, 95.0, 1.0, 0.03, 0.0, 0.0, 0.0)
+    flat = AssetPair(100.0, 95.0, 1.0, 0.03, 0.0, 0.0, 0.0)
     assert spread_price(flat, strike) == pytest.approx(
         flat.discount * max(100.0 - 95.0 - strike, 0.0)
     )
-    expiry = Pair(100.0, 95.0, 0.0, 0.03, 0.3, 0.25, 0.4)
+    expiry = AssetPair(100.0, 95.0, 0.0, 0.03, 0.3, 0.25, 0.4)
     assert spread_price(expiry, strike) == pytest.approx(max(5.0 - strike, 0.0))
 
 
 def test_exchange_handles_a_worthless_or_free_second_asset() -> None:
-    assert exchange(Pair(100.0, 0.0, 1.0, 0.03, 0.3, 0.25, 0.4)) == pytest.approx(
+    assert exchange(AssetPair(100.0, 0.0, 1.0, 0.03, 0.3, 0.25, 0.4)) == pytest.approx(
         math.exp(-0.03) * 100.0
     )
-    assert exchange(Pair(0.0, 95.0, 1.0, 0.03, 0.3, 0.25, 0.4)) == 0.0
-    assert exchange(Pair(100.0, 95.0, 1.0, 0.03, 0.0, 0.0, 0.0)) == pytest.approx(
+    assert exchange(AssetPair(0.0, 95.0, 1.0, 0.03, 0.3, 0.25, 0.4)) == 0.0
+    assert exchange(AssetPair(100.0, 95.0, 1.0, 0.03, 0.0, 0.0, 0.0)) == pytest.approx(
         math.exp(-0.03) * 5.0
     )
 
@@ -270,9 +270,9 @@ def test_the_split_level_is_undefined_without_volatility_on_both_assets() -> Non
     bisection cannot handle is the one rejected here.
     """
     with pytest.raises(SpreadError, match="no volatility"):
-        vanilla_split(Pair(100.0, 95.0, 1.0, 0.0, 0.0, 0.25, 0.0), 5.0)
+        vanilla_split(AssetPair(100.0, 95.0, 1.0, 0.0, 0.0, 0.25, 0.0), 5.0)
     with pytest.raises(SpreadError, match="no volatility"):
-        vanilla_split(Pair(100.0, 95.0, 1.0, 0.0, 0.3, 0.0, 0.0), 5.0)
+        vanilla_split(AssetPair(100.0, 95.0, 1.0, 0.0, 0.3, 0.0, 0.0), 5.0)
 
 
 # --------------------------------------------------------------------------
@@ -457,7 +457,7 @@ def test_the_bound_usually_beats_kirk_and_not_always() -> None:
 # --------------------------------------------------------------------------
 
 
-def _uniform_panels(pair: Pair, strike: float, width: float, count: int) -> float:
+def _uniform_panels(pair: AssetPair, strike: float, width: float, count: int) -> float:
     """The same integrand on uniform panels, with no edge at the kink."""
     shift = pair.correlation * pair.total1
     total2 = pair.total2
@@ -488,7 +488,7 @@ def test_missing_the_kink_costs_eight_orders_and_does_not_converge_cleanly() -> 
     convergence check would have reported the method diverging. The edge at
     the kink makes the same quadrature exact to 4.5e-14.
     """
-    pair = Pair(100.0, 95.0, 1.0, 0.03, 0.0, 0.25, 0.0)
+    pair = AssetPair(100.0, 95.0, 1.0, 0.03, 0.0, 0.25, 0.0)
     strike = 5.0
     reference = price(Inputs.on_future(95.0, 95.0, 1.0, 0.03, 0.25), OptionType.PUT)
     errors = [
@@ -502,7 +502,7 @@ def test_missing_the_kink_costs_eight_orders_and_does_not_converge_cleanly() -> 
 
 
 def test_critical_states_finds_the_conditional_money() -> None:
-    pair = Pair(100.0, 95.0, 1.0, 0.03, 0.0, 0.25, 0.0)
+    pair = AssetPair(100.0, 95.0, 1.0, 0.03, 0.0, 0.25, 0.0)
     roots = critical_states(pair, 5.0, 8.0)
     assert len(roots) == 1
     z = roots[0]
@@ -548,7 +548,7 @@ def test_the_truncation_bound_actually_bounds_the_discarded_mass(call: bool) -> 
         assert 0.0 <= discarded <= truncation_bound(pair, strike, width, call=call)
 
 
-def _integrand(pair: Pair, strike: float, z: float, *, call: bool) -> float:
+def _integrand(pair: AssetPair, strike: float, z: float, *, call: bool) -> float:
     shift = pair.correlation * pair.total1
     total2 = pair.total2
     conditional = pair.total1 * math.sqrt(max(1.0 - pair.correlation**2, 0.0))
@@ -580,7 +580,7 @@ def test_the_truncation_bound_underflows_before_the_ceiling(call: bool) -> None:
     for forward, vol, time in itertools.product(
         (1.0, 100.0, 1e4), (0.05, 0.5, 1.5, 3.0), (0.1, 5.0, 30.0)
     ):
-        pair = Pair(forward, forward * 0.95, time, 0.01, vol, vol * 0.8, 0.3)
+        pair = AssetPair(forward, forward * 0.95, time, 0.01, vol, vol * 0.8, 0.3)
         worst = max(worst, truncation_bound(pair, 5.0, 39.0, call=call))
     assert worst < 1e-140
 
@@ -591,7 +591,7 @@ def test_a_total_volatility_near_the_ceiling_is_refused() -> None:
     The guard is reachable with a representable pair rather than being an
     assertion about inputs that cannot occur.
     """
-    pair = Pair(100.0, 95.0, 100.0, 0.0, 5.0, 0.3, 0.9)
+    pair = AssetPair(100.0, 95.0, 100.0, 0.0, 5.0, 0.3, 0.9)
     assert pair.total1 == pytest.approx(50.0)
     with pytest.raises(SpreadError, match="widest ceiling"):
         spread_price(pair, 5.0)
@@ -607,7 +607,7 @@ def test_the_accuracy_floor_is_above_the_measured_error_and_below_the_price() ->
     for forward1, vol1, correlation, time in itertools.product(
         (1.0, 100.0, 5000.0), (0.05, 0.3, 0.9), (-0.9, 0.0, 0.9), (0.08, 1.0, 10.0)
     ):
-        pair = Pair(forward1, forward1 * 0.95, time, 0.03, vol1, 0.25, correlation)
+        pair = AssetPair(forward1, forward1 * 0.95, time, 0.03, vol1, 0.25, correlation)
         error = abs(spread_price(pair, 0.0) - exchange(pair))
         worst = max(worst, error / accuracy_floor(pair, 0.0))
     assert worst < 1.0
@@ -705,9 +705,9 @@ def test_kirk_refuses_a_non_positive_shifted_forward() -> None:
 
 
 def test_degenerate_pairs_reach_the_vanilla_bound_without_a_split() -> None:
-    flat = Pair(100.0, 95.0, 1.0, 0.03, 0.0, 0.0, 0.0)
+    flat = AssetPair(100.0, 95.0, 1.0, 0.03, 0.0, 0.0, 0.0)
     assert vanilla_upper_bound(flat, 1.0) >= spread_price(flat, 1.0) - 1e-12
-    one_sided = Pair(100.0, 95.0, 1.0, 0.03, 0.3, 0.0, 0.0)
+    one_sided = AssetPair(100.0, 95.0, 1.0, 0.03, 0.3, 0.0, 0.0)
     assert vanilla_upper_bound(one_sided, 1.0) >= spread_price(one_sided, 1.0) - 1e-12
 
 
