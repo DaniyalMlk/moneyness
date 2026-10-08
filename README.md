@@ -937,6 +937,96 @@ moneyness asian --spot 100 --strike 120 --time 1 --rate 0.05 --vol 0.20 \
   --fixings 12 --fixing-table
 ```
 
+## A sixteenth decision: let a bound with no correlation in it be the check
+
+An option on `S1 - S2` has no closed form, so the module carries three routes:
+Margrabe's exchange option, which is exact at a zero strike; Kirk's
+approximation, which is what desks quote; and an exact conditional quadrature.
+Conditioning is the one that does the work. Given the variate driving the second
+asset, the first is still lognormal with a shifted forward and a reduced
+variance, so the conditional payoff is a Black-76 call struck at `S2(z) + K` and
+the price is one integral against a normal density.
+
+```bash
+moneyness spread --forward1 100 --forward2 95 --strike 1 \
+    --time 1 --rate 0.03 --vol1 0.30 --vol2 0.25 --rho 0.9
+```
+
+```
+              contract  call on S1 - S2 struck at 1
+        forward spread  5.0000000000
+            spread vol  0.1322875656
+
+                 price  7.2080907571
+           resolves to  2.155e-10  (absolute)
+
+    lower (half-space)  7.2080631333
+      upper (vanillas)  7.7857973177
+        interval width  0.5777341844
+                        0.0802 of the price
+
+        exchange (K=0)  7.7857973177  (exact, Margrabe)
+                  Kirk  7.2079860954
+                        -1.452e-05 relative
+                        outside the bounds, below the lower bound by 7.704e-05
+```
+
+The last line is the decision in the heading. Kirk's error here is 1.5e-05
+relative, which anybody would accept — and the number is nonetheless below a
+price that can be sub-replicated, so it is not a slightly-off price but an
+arbitrage. Nothing except a rigorous bound can say that, and the same bound says
+it at 18 of the 84 strike-correlation points swept: fifteen below the lower
+bound, and three *above* the upper one by up to 1.9e-02 at a correlation of
+-0.99.
+
+### The upper bound is a correlation reading
+
+For any level `a`, `max(S1 - S2 - K, 0) <= max(S1 - a, 0) + max(a - S2 - K, 0)`
+path by path — the split either hands the whole shortfall to one leg or divides
+it exactly. So two vanilla options bound the spread, with no correlation in them
+at all.
+
+That is also the limit of what they can do. A bound that holds for every
+coupling of the two marginals is the price under the worst one, and for
+lognormals the worst coupling is attainable. So the optimised portfolio does not
+approximate the upper extreme; it **equals** the spread price at a correlation of
+minus one, measured at 4.2e-14 to 6.7e-14 relative across five strikes. Two
+routes with nothing in common — two Black formulas against a conditional
+quadrature — agreeing to machine precision is worth more than either agreeing
+with a tolerance.
+
+Which explains the width above. The bracket is 1.1% of the price near a
+correlation of minus one and 484% wide at plus 0.9, because the width measures
+distance from the worst case rather than the quality of the method. At a zero
+strike it closes entirely: `S1 > S2` is already a linear condition on the
+driving Gaussian, so the best sub-replicating half-space *is* the exercise
+region and the dominating exchange option is the same price.
+
+### The kink is worth eight orders of magnitude, and missing it looks like divergence
+
+With no volatility on the first asset the integrand is genuinely kinked at the
+point where the conditional option passes through the money. Uniform panels at
+24, 48, 96 and 192 panels give relative errors of 9.6e-06, **1.8e-05**, 3.3e-06
+and 1.2e-06 against the closed form. The first refinement makes it *worse*, so a
+two-point convergence check would have reported the method diverging rather than
+crawling. With the root of `F1(z) - S2(z) - K` inserted as a panel edge, the same
+quadrature is exact to 4.5e-14.
+
+### Two monotonicity claims that measurement contradicted
+
+Kirk's error grows with the strike — at every one of the six non-positive
+correlations swept, where it reads high throughout. At correlations of 0.5 and
+0.95 the sign change lands inside the strike range and the ordering fails. The
+first version of that test was tried on negative correlations and passed on a
+claim that is false.
+
+And the half-space lower bound's gap is not monotone in the correlation. It is
+exact at both ends, since a single driving variate makes the exercise region a
+genuine half-space, and peaks in between: 3.1e-10, 1.0e-06, 5.9e-06, 2.4e-05,
+6.9e-05, 1.2e-04, then back to 1.0e-06 as the correlation runs -0.99, -0.9, 0,
+0.5, 0.8, 0.95, 0.999. Any sweep stopping at 0.9 would have shown it growing
+throughout.
+
 ## Running the tests
 
 ```bash
@@ -1014,6 +1104,14 @@ bracketed. The arithmetic average of lognormals has no tractable distribution, s
 and rigorous bounds from AM-GM and convexity — which is what lets it show that
 the moment-matched price every trading system uses falls *below* a rigorous lower
 bound out of the money, by 3.4% at 20% volatility.
+
+Phase 16 adds the first contract on *two* underlyings. `moneyness.spread`
+prices an option on `S1 - S2` by conditioning — exact up to the quadrature,
+pinned against Margrabe at a zero strike — alongside Kirk's approximation and a
+rigorous interval. The upper side of that interval is built from two vanilla
+options and carries no correlation at all, which turns out to equal the price
+at a correlation of minus one to 1e-13; and inside it, Kirk sits outside the
+bounds at 18 of 84 points swept.
 
 Every item on [the roadmap](ROADMAP.md) is now done except the first release
 on the package index, which waits on the publisher being registered there.
