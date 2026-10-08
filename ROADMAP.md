@@ -570,3 +570,96 @@ That is what the bounds are for. Nothing else in the module could tell that the
 moment-matched price at 120 is wrong, because there is no closed form to compare
 it against and the simulation's standard error is wider than the error being
 looked for at low volatility. A rigorous inequality can.
+
+## Phase 16 — Two assets, and a bound that reads the correlation
+
+- [x] A pair of lognormal assets carrying two forwards, two volatilities and a
+      correlation, with each asset's carry applied on the way in
+- [x] Margrabe's exchange option, exact, as the zero-strike reference
+- [x] The exact price by conditioning on the second asset, as one integral of a
+      Black-76 call against a normal density
+- [x] The conditional option's passage through the money located and placed on
+      a panel edge, which is where the integrand is kinked rather than merely
+      awkward
+- [x] A closed-form truncation bound, and the ceiling solved from the tolerance
+      rather than chosen
+- [x] The accuracy floor measured and reported, since round-off scales with the
+      payoff and not with the answer
+- [x] Kirk's approximation, with its error measured across strike and
+      correlation instead of asserted to be small
+- [x] A sub-replicating half-space as a rigorous lower bound, valid for every
+      direction and offset so that the search cannot break it
+- [x] Super-replication by two vanilla options, shown to equal the price at a
+      correlation of minus one rather than merely to bound it
+- [x] A command-line entry point that leads with the interval and flags an
+      approximation that leaves it
+
+Three routes to one price, and the reason for three is the same as in Phase 15:
+the difference of two lognormals has no closed form, so an approximation on its
+own cannot be checked. Conditioning on the second asset is exact — given the
+variate that drives it, the first asset is still lognormal with a shifted
+forward and a reduced variance, so the conditional payoff is a Black-76 call
+struck at `S2(z) + K`. Margrabe's formula is the independent reference at a zero
+strike, and two more reductions check the rest: with no volatility on the second
+asset the spread option is a Black call struck at `F2 + K`, and with none on the
+first it is a Black put on the second struck at `F1 - K`. All three agree to
+better than 1e-12 relative.
+
+**The kink has to be on a panel edge, and missing it does not look like an
+error.** With no volatility on the first asset the integrand is genuinely
+kinked at one point. Uniform panels at 24, 48, 96 and 192 panels give relative
+errors of 9.6e-06, **1.8e-05**, 3.3e-06 and 1.2e-06 — the first refinement makes
+it worse, so a two-point convergence check would have reported the method
+diverging rather than crawling. With the root of `F1(z) - S2(z) - K` inserted as
+an edge the same quadrature is exact to 4.5e-14. That is the fifth module in
+which a discontinuity on a panel edge or a grid node was worth four to eight
+orders of magnitude.
+
+**The upper bound is not an accuracy, it is a correlation reading.** For any
+level `a`, `max(S1 - S2 - K, 0) <= max(S1 - a, 0) + max(a - S2 - K, 0)` path by
+path, so two vanilla options bound the spread with no correlation in them at
+all. That is also exactly what they can do: a bound holding for every coupling
+of the two marginals is the price under the worst one, and for lognormals that
+coupling is attainable. So the optimised portfolio does not approximate the
+upper extreme — it **equals** the spread price at a correlation of minus one, to
+between 4.2e-14 and 6.7e-14 relative across five strikes. Two routes with
+nothing in common, one being two Black formulas and the other a conditional
+quadrature, agreeing to machine precision.
+
+Which is also why the bracket is 1.1% of the price wide near a correlation of
+minus one and 484% wide at plus 0.9. The width measures distance from the worst
+case, not the quality of the method.
+
+### Kirk is not arbitrage-free, and that is measurable
+
+Kirk's approximation reads low at positive correlation and short strikes and
+high everywhere else, so no tolerance describes it. At 18 of 84 points swept it
+is outside the rigorous interval: fifteen below the sub-replicating lower bound,
+by up to 1.1e-03 relative at a correlation of 0.99 and a strike of 2, and three
+above the super-replicating upper bound at correlations near minus one and far
+strikes, by **1.9e-02** at a correlation of -0.99 and a strike of 40. The second
+is the worse kind of wrong: a price above the vanilla super-replication cost is
+above what *any* coupling of the two marginals can produce, so it is not a
+mispricing of this model but a number no model can return.
+
+The size of the error is monotone in the strike only where its sign is fixed. At
+all six non-positive correlations swept it reads high at every strike and grows
+with it; at correlations of 0.5 and 0.95 the crossing lands inside the strike
+range and the ordering fails. Neither of those is a correlation a sweep of the
+negative side would have reached, which is how the first version of that test
+passed on a false claim.
+
+### The lower bound's gap is not monotone in the correlation
+
+The half-space bound is exact at both ends — one driving variate at either, so
+the exercise region genuinely is a half-space — and loosest in between. At a
+strike of 5 its relative gap runs 3.1e-10, 1.0e-06, 5.9e-06, 2.4e-05, 6.9e-05,
+1.2e-04 and back down to 1.0e-06 as the correlation goes -0.99, -0.9, 0, 0.5,
+0.8, 0.95, 0.999. Asserting that it tightens with the correlation would have
+passed on any sweep stopping at 0.9.
+
+It is usually the better number. Over the whole grid its gap is a median sixty
+times smaller than Kirk's error and up to ten million times smaller at a
+correlation of -0.99. But it loses at eight of eighty-four points, by up to a
+factor of three at high correlation and far strikes, so the case for it is not
+that it is always closer. It is that its error has a sign.
