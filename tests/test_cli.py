@@ -20,8 +20,24 @@ from moneyness.cli import main
 
 
 def test_price_reports_the_model_price(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["price", "--spot", "100", "--strike", "95", "--time", "0.5",
-                 "--rate", "0.04", "--vol", "0.22"]) == 0
+    assert (
+        main(
+            [
+                "price",
+                "--spot",
+                "100",
+                "--strike",
+                "95",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.04",
+                "--vol",
+                "0.22",
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     expected = price(Inputs(100.0, 95.0, 0.5, 0.04, 0.22), OptionType.CALL)
     assert f"{expected:.10f}" in out
@@ -29,8 +45,25 @@ def test_price_reports_the_model_price(capsys: pytest.CaptureFixture[str]) -> No
 
 
 def test_put_flag_selects_the_put(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["price", "--spot", "100", "--strike", "95", "--time", "0.5",
-                 "--rate", "0.04", "--vol", "0.22", "--put"]) == 0
+    assert (
+        main(
+            [
+                "price",
+                "--spot",
+                "100",
+                "--strike",
+                "95",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.04",
+                "--vol",
+                "0.22",
+                "--put",
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     expected = price(Inputs(100.0, 95.0, 0.5, 0.04, 0.22), OptionType.PUT)
     assert f"{expected:.10f}" in out
@@ -38,8 +71,25 @@ def test_put_flag_selects_the_put(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_future_flag_zeroes_the_carry(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["price", "--spot", "100", "--strike", "95", "--time", "0.5",
-                 "--rate", "0.04", "--vol", "0.22", "--future"]) == 0
+    assert (
+        main(
+            [
+                "price",
+                "--spot",
+                "100",
+                "--strike",
+                "95",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.04",
+                "--vol",
+                "0.22",
+                "--future",
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     expected = price(Inputs.on_future(100.0, 95.0, 0.5, 0.04, 0.22), OptionType.CALL)
     assert f"{expected:.10f}" in out
@@ -48,36 +98,111 @@ def test_future_flag_zeroes_the_carry(capsys: pytest.CaptureFixture[str]) -> Non
 
 
 def test_dividend_flag_subtracts_from_the_rate(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["price", "--spot", "100", "--strike", "95", "--time", "0.5",
-                 "--rate", "0.04", "--vol", "0.22", "--dividend", "0.015"]) == 0
-    out = capsys.readouterr().out
-    expected = price(
-        Inputs.with_dividend(100.0, 95.0, 0.5, 0.04, 0.22, 0.015), OptionType.CALL
+    assert (
+        main(
+            [
+                "price",
+                "--spot",
+                "100",
+                "--strike",
+                "95",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.04",
+                "--vol",
+                "0.22",
+                "--dividend",
+                "0.015",
+            ]
+        )
+        == 0
     )
+    out = capsys.readouterr().out
+    expected = price(Inputs.with_dividend(100.0, 95.0, 0.5, 0.04, 0.22, 0.015), OptionType.CALL)
     assert f"{expected:.10f}" in out
 
 
 def test_conflicting_carry_flags_are_refused() -> None:
     with pytest.raises(SystemExit):
-        main(["price", "--spot", "100", "--strike", "95", "--time", "0.5",
-              "--rate", "0.04", "--vol", "0.22", "--future", "--dividend", "0.01"])
+        main(
+            [
+                "price",
+                "--spot",
+                "100",
+                "--strike",
+                "95",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.04",
+                "--vol",
+                "0.22",
+                "--future",
+                "--dividend",
+                "0.01",
+            ]
+        )
 
 
 def test_greeks_prints_every_sensitivity(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["greeks", "--spot", "100", "--strike", "95", "--time", "0.5",
-                 "--rate", "0.04", "--vol", "0.22"]) == 0
+    assert (
+        main(
+            [
+                "greeks",
+                "--spot",
+                "100",
+                "--strike",
+                "95",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.04",
+                "--vol",
+                "0.22",
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     for name in (
-        "delta", "gamma", "vega", "theta", "vanna", "volga", "charm",
-        "veta", "colour", "speed", "zomma", "dual delta", "dual gamma",
+        "delta",
+        "gamma",
+        "vega",
+        "theta",
+        "vanna",
+        "volga",
+        "charm",
+        "veta",
+        "colour",
+        "speed",
+        "zomma",
+        "dual delta",
+        "dual gamma",
     ):
         assert name in out
 
 
 def test_iv_round_trips_through_the_command_line(capsys: pytest.CaptureFixture[str]) -> None:
     quoted = price(Inputs(100.0, 95.0, 0.5, 0.04, 0.22), OptionType.CALL)
-    assert main(["iv", "--spot", "100", "--strike", "95", "--time", "0.5",
-                 "--rate", "0.04", "--price", repr(quoted)]) == 0
+    assert (
+        main(
+            [
+                "iv",
+                "--spot",
+                "100",
+                "--strike",
+                "95",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.04",
+                "--price",
+                repr(quoted),
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     recovered = float(out.splitlines()[0].split()[-1])
     assert recovered == pytest.approx(0.22, rel=1e-9)
@@ -86,8 +211,25 @@ def test_iv_round_trips_through_the_command_line(capsys: pytest.CaptureFixture[s
 
 def test_iv_can_be_asked_for_brent(capsys: pytest.CaptureFixture[str]) -> None:
     quoted = price(Inputs(100.0, 95.0, 0.5, 0.04, 0.22), OptionType.CALL)
-    assert main(["iv", "--spot", "100", "--strike", "95", "--time", "0.5",
-                 "--rate", "0.04", "--price", repr(quoted), "--brent"]) == 0
+    assert (
+        main(
+            [
+                "iv",
+                "--spot",
+                "100",
+                "--strike",
+                "95",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.04",
+                "--price",
+                repr(quoted),
+                "--brent",
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     assert "brent" in out
     assert float(out.splitlines()[0].split()[-1]) == pytest.approx(0.22, rel=1e-9)
@@ -96,16 +238,52 @@ def test_iv_can_be_asked_for_brent(capsys: pytest.CaptureFixture[str]) -> None:
 def test_iv_reports_an_unreachable_quote_without_a_traceback(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert main(["iv", "--spot", "100", "--strike", "50", "--time", "1",
-                 "--rate", "0.05", "--price", "1.0"]) == 1
+    assert (
+        main(
+            [
+                "iv",
+                "--spot",
+                "100",
+                "--strike",
+                "50",
+                "--time",
+                "1",
+                "--rate",
+                "0.05",
+                "--price",
+                "1.0",
+            ]
+        )
+        == 1
+    )
     captured = capsys.readouterr()
     assert "no-arbitrage" in captured.err
     assert "must lie in" in captured.err
 
 
 def test_ladder_prints_one_row_per_strike(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["ladder", "--spot", "100", "--time", "0.25", "--vol", "0.3",
-                 "--rate", "0.03", "--low", "80", "--high", "120", "--steps", "5"]) == 0
+    assert (
+        main(
+            [
+                "ladder",
+                "--spot",
+                "100",
+                "--time",
+                "0.25",
+                "--vol",
+                "0.3",
+                "--rate",
+                "0.03",
+                "--low",
+                "80",
+                "--high",
+                "120",
+                "--steps",
+                "5",
+            ]
+        )
+        == 0
+    )
     lines = capsys.readouterr().out.strip().splitlines()
     assert len(lines) == 7  # header, rule, five strikes
     strikes = [float(line.split()[0]) for line in lines[2:]]
@@ -113,8 +291,28 @@ def test_ladder_prints_one_row_per_strike(capsys: pytest.CaptureFixture[str]) ->
 
 
 def test_ladder_rows_agree_with_the_library(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["ladder", "--spot", "100", "--time", "0.25", "--vol", "0.3",
-                 "--rate", "0.03", "--low", "80", "--high", "120", "--steps", "5"]) == 0
+    assert (
+        main(
+            [
+                "ladder",
+                "--spot",
+                "100",
+                "--time",
+                "0.25",
+                "--vol",
+                "0.3",
+                "--rate",
+                "0.03",
+                "--low",
+                "80",
+                "--high",
+                "120",
+                "--steps",
+                "5",
+            ]
+        )
+        == 0
+    )
     lines = capsys.readouterr().out.strip().splitlines()[2:]
     for line in lines:
         strike, call, put = (float(field) for field in line.split()[:3])
@@ -124,16 +322,50 @@ def test_ladder_rows_agree_with_the_library(capsys: pytest.CaptureFixture[str]) 
 
 
 def test_invalid_market_data_exits_cleanly(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["price", "--spot", "-100", "--strike", "95", "--time", "0.5",
-                 "--rate", "0.04", "--vol", "0.22"]) == 1
+    assert (
+        main(
+            [
+                "price",
+                "--spot",
+                "-100",
+                "--strike",
+                "95",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.04",
+                "--vol",
+                "0.22",
+            ]
+        )
+        == 1
+    )
     assert "spot" in capsys.readouterr().err
 
 
 def test_a_single_strike_ladder_does_not_divide_by_zero(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert main(["ladder", "--spot", "100", "--time", "0.25", "--vol", "0.3",
-                 "--low", "100", "--high", "100", "--steps", "1"]) == 0
+    assert (
+        main(
+            [
+                "ladder",
+                "--spot",
+                "100",
+                "--time",
+                "0.25",
+                "--vol",
+                "0.3",
+                "--low",
+                "100",
+                "--high",
+                "100",
+                "--steps",
+                "1",
+            ]
+        )
+        == 0
+    )
     lines = capsys.readouterr().out.strip().splitlines()
     assert len(lines) == 3
     assert not any(math.isnan(float(f)) for f in lines[2].split())
@@ -141,8 +373,20 @@ def test_a_single_strike_ladder_does_not_divide_by_zero(
 
 def _american_args(*extra: str) -> list[str]:
     return [
-        "american", "--spot", "100", "--strike", "100", "--time", "1",
-        "--rate", "0.06", "--vol", "0.25", "--dividend", "0.06", *extra,
+        "american",
+        "--spot",
+        "100",
+        "--strike",
+        "100",
+        "--time",
+        "1",
+        "--rate",
+        "0.06",
+        "--vol",
+        "0.25",
+        "--dividend",
+        "0.06",
+        *extra,
     ]
 
 
@@ -166,8 +410,26 @@ def test_american_call_without_dividends_shows_no_premium(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The wiring must carry the carry through, or this silently shows a premium."""
-    assert main(["american", "--spot", "100", "--strike", "95", "--time", "0.5",
-                 "--rate", "0.04", "--vol", "0.22", "--steps", "150"]) == 0
+    assert (
+        main(
+            [
+                "american",
+                "--spot",
+                "100",
+                "--strike",
+                "95",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.04",
+                "--vol",
+                "0.22",
+                "--steps",
+                "150",
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     line = next(ln for ln in out.splitlines() if "early exercise premium" in ln)
     assert float(line.split()[-1]) == 0.0
@@ -199,16 +461,55 @@ def test_american_boundary_table_rises_towards_the_strike(
 def test_american_boundary_says_so_when_the_region_is_empty(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert main(["american", "--spot", "100", "--strike", "95", "--time", "0.5",
-                 "--rate", "0.04", "--vol", "0.22", "--steps", "150", "--boundary"]) == 0
+    assert (
+        main(
+            [
+                "american",
+                "--spot",
+                "100",
+                "--strike",
+                "95",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.04",
+                "--vol",
+                "0.22",
+                "--steps",
+                "150",
+                "--boundary",
+            ]
+        )
+        == 0
+    )
     assert "exercise region is empty" in capsys.readouterr().out
 
 
 def test_american_refuses_a_layer_count_below_the_stability_floor(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert main(["american", "--spot", "100", "--strike", "100", "--time", "5",
-                 "--rate", "0.02", "--vol", "0.05", "--carry", "0.60", "--steps", "2"]) == 1
+    assert (
+        main(
+            [
+                "american",
+                "--spot",
+                "100",
+                "--strike",
+                "100",
+                "--time",
+                "5",
+                "--rate",
+                "0.02",
+                "--vol",
+                "0.05",
+                "--carry",
+                "0.60",
+                "--steps",
+                "2",
+            ]
+        )
+        == 1
+    )
     err = capsys.readouterr().err
     assert "below the" in err and "layers" in err
 
@@ -241,8 +542,26 @@ def test_american_says_when_the_trigger_is_never_reached(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """An infinite boundary must read as words, not as `inf`."""
-    assert main(["american", "--spot", "100", "--strike", "95", "--time", "0.5",
-                 "--rate", "0.04", "--vol", "0.22", "--steps", "150"]) == 0
+    assert (
+        main(
+            [
+                "american",
+                "--spot",
+                "100",
+                "--strike",
+                "95",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.04",
+                "--vol",
+                "0.22",
+                "--steps",
+                "150",
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     assert "never reached" in out
     assert "inf" not in out
@@ -254,8 +573,28 @@ def test_american_says_when_the_trigger_is_never_reached(
 
 
 def test_term_prints_one_row_per_maturity(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["term", "--spot", "100", "--strike", "100", "--vol", "0.2",
-                 "--rate", "0.05", "--near", "0.1", "--far", "2.0", "--steps", "7"]) == 0
+    assert (
+        main(
+            [
+                "term",
+                "--spot",
+                "100",
+                "--strike",
+                "100",
+                "--vol",
+                "0.2",
+                "--rate",
+                "0.05",
+                "--near",
+                "0.1",
+                "--far",
+                "2.0",
+                "--steps",
+                "7",
+            ]
+        )
+        == 0
+    )
     lines = capsys.readouterr().out.strip().splitlines()
     assert len(lines) == 9  # header, rule, seven rows
     assert "maturity" in lines[0]
@@ -263,8 +602,28 @@ def test_term_prints_one_row_per_maturity(capsys: pytest.CaptureFixture[str]) ->
 
 def test_term_rows_agree_with_the_library(capsys: pytest.CaptureFixture[str]) -> None:
     """The point of an end-to-end test: the numbers printed are the library's."""
-    assert main(["term", "--spot", "100", "--strike", "95", "--vol", "0.25",
-                 "--rate", "0.03", "--near", "0.25", "--far", "4.0", "--steps", "5"]) == 0
+    assert (
+        main(
+            [
+                "term",
+                "--spot",
+                "100",
+                "--strike",
+                "95",
+                "--vol",
+                "0.25",
+                "--rate",
+                "0.03",
+                "--near",
+                "0.25",
+                "--far",
+                "4.0",
+                "--steps",
+                "5",
+            ]
+        )
+        == 0
+    )
     rows = capsys.readouterr().out.strip().splitlines()[2:]
     assert len(rows) == 5
     for row in rows:
@@ -282,8 +641,26 @@ def test_term_spaces_maturities_geometrically(capsys: pytest.CaptureFixture[str]
     end, where the term structure barely moves, and none at the short end,
     where it moves most.
     """
-    assert main(["term", "--spot", "100", "--strike", "100", "--vol", "0.2",
-                 "--near", "0.1", "--far", "10.0", "--steps", "5"]) == 0
+    assert (
+        main(
+            [
+                "term",
+                "--spot",
+                "100",
+                "--strike",
+                "100",
+                "--vol",
+                "0.2",
+                "--near",
+                "0.1",
+                "--far",
+                "10.0",
+                "--steps",
+                "5",
+            ]
+        )
+        == 0
+    )
     rows = capsys.readouterr().out.strip().splitlines()[2:]
     times = [float(row.split()[0]) for row in rows]
     near, far, steps = 0.1, 10.0, 5
@@ -300,8 +677,26 @@ def test_term_spaces_maturities_geometrically(capsys: pytest.CaptureFixture[str]
 
 
 def test_term_accepts_a_single_maturity(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["term", "--spot", "100", "--strike", "100", "--vol", "0.2",
-                 "--near", "1.0", "--far", "1.0", "--steps", "1"]) == 0
+    assert (
+        main(
+            [
+                "term",
+                "--spot",
+                "100",
+                "--strike",
+                "100",
+                "--vol",
+                "0.2",
+                "--near",
+                "1.0",
+                "--far",
+                "1.0",
+                "--steps",
+                "1",
+            ]
+        )
+        == 0
+    )
     rows = capsys.readouterr().out.strip().splitlines()[2:]
     assert len(rows) == 1
     assert float(rows[0].split()[0]) == pytest.approx(1.0)
@@ -396,9 +791,7 @@ def test_surface_recovers_the_parameters_the_quotes_were_built_from(
 
     out = capsys.readouterr().out
     rows = [
-        line.split()
-        for line in out.splitlines()
-        if line.startswith(("   0.2", "   1.0", "   2.0"))
+        line.split() for line in out.splitlines() if line.startswith(("   0.2", "   1.0", "   2.0"))
     ]
     assert len(rows) == 3
     for row, (time, (a, b, rho, _m, s)) in zip(rows, sorted(ORDERED_SLICES.items()), strict=True):
@@ -466,9 +859,10 @@ def test_surface_prints_a_local_volatility_grid(
     tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path = _quote_file(tmp_path / "quotes.csv", ORDERED_SLICES)
-    assert main(
-        ["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05", "--local-vol"]
-    ) == 0
+    assert (
+        main(["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05", "--local-vol"])
+        == 0
+    )
     out = capsys.readouterr().out
     assert "local volatility by the Dupire identity" in out
     _, rows = _local_vol_grid(out)
@@ -489,9 +883,10 @@ def test_the_local_volatility_grid_stays_inside_the_quoted_maturities(
     it under a column headed by a real maturity invited it to be read as one.
     """
     path = _quote_file(tmp_path / "quotes.csv", ORDERED_SLICES)
-    assert main(
-        ["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05", "--local-vol"]
-    ) == 0
+    assert (
+        main(["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05", "--local-vol"])
+        == 0
+    )
     columns, rows = _local_vol_grid(capsys.readouterr().out)
     assert all(0.25 < time < 2.0 for time in columns), columns
     for row in rows:
@@ -540,9 +935,10 @@ def test_surface_handles_a_single_maturity(
 ) -> None:
     """One slice cannot cross another, and gives no slope in maturity to differentiate."""
     path = _quote_file(tmp_path / "one.csv", {1.0: ORDERED_SLICES[1.00]})
-    assert main(
-        ["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05", "--local-vol"]
-    ) == 0
+    assert (
+        main(["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05", "--local-vol"])
+        == 0
+    )
     out = capsys.readouterr().out
     assert "a single maturity cannot cross another" in out
     assert "dw/dT is zero" in out
@@ -563,10 +959,27 @@ LADDER_ROWS = ("80.", "90.", "100.", "110.", "120.")
 
 HESTON_ARGS = [
     "heston",
-    "--spot", "100", "--time", "1.0", "--future",
-    "--v0", "0.04", "--kappa", "1.5768", "--theta", "0.04",
-    "--sigma", "0.5751", "--rho", "-0.5711",
-    "--low", "80", "--high", "120", "--steps", "5",
+    "--spot",
+    "100",
+    "--time",
+    "1.0",
+    "--future",
+    "--v0",
+    "0.04",
+    "--kappa",
+    "1.5768",
+    "--theta",
+    "0.04",
+    "--sigma",
+    "0.5751",
+    "--rho",
+    "-0.5711",
+    "--low",
+    "80",
+    "--high",
+    "120",
+    "--steps",
+    "5",
 ]
 
 
@@ -647,10 +1060,27 @@ def test_heston_refuses_a_bad_parameter(capsys: pytest.CaptureFixture[str]) -> N
 
 PATH_ARGS = [
     "heston-path",
-    "--spot", "100", "--strike", "100", "--time", "1.0", "--future",
-    "--v0", "0.04", "--kappa", "1.5768", "--theta", "0.04",
-    "--sigma", "0.5751", "--rho", "-0.5711",
-    "--steps", "8", "--paths", "4000",
+    "--spot",
+    "100",
+    "--strike",
+    "100",
+    "--time",
+    "1.0",
+    "--future",
+    "--v0",
+    "0.04",
+    "--kappa",
+    "1.5768",
+    "--theta",
+    "0.04",
+    "--sigma",
+    "0.5751",
+    "--rho",
+    "-0.5711",
+    "--steps",
+    "8",
+    "--paths",
+    "4000",
 ]
 
 
@@ -679,9 +1109,7 @@ def test_heston_path_prices_a_barrier_below_the_vanilla(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert main([*PATH_ARGS, "--payoff", "barrier", "--level", "85"]) == 0
-    knock_out = float(
-        capsys.readouterr().out.split("value             ")[1].split()[0]
-    )
+    knock_out = float(capsys.readouterr().out.split("value             ")[1].split()[0])
     assert main(PATH_ARGS) == 0
     vanilla = float(capsys.readouterr().out.split("value             ")[1].split()[0])
     assert 0.0 < knock_out < vanilla
@@ -763,9 +1191,28 @@ def test_variance_under_heston_matches_the_closed_form(
     assert (
         main(
             [
-                "variance", "--forward", "100", "--time", "1.0", "--rate", "0.02",
-                "--heston", "--v0", "0.09", "--kappa", "2.0", "--theta", "0.04",
-                "--sigma", "0.8", "--rho", "-0.5", "--width", "6.0", "--tol", "1e-12",
+                "variance",
+                "--forward",
+                "100",
+                "--time",
+                "1.0",
+                "--rate",
+                "0.02",
+                "--heston",
+                "--v0",
+                "0.09",
+                "--kappa",
+                "2.0",
+                "--theta",
+                "0.04",
+                "--sigma",
+                "0.8",
+                "--rho",
+                "-0.5",
+                "--width",
+                "6.0",
+                "--tol",
+                "1e-12",
             ]
         )
         == 0
@@ -802,10 +1249,22 @@ def test_variance_reads_a_quote_file(
     source = tmp_path / "quotes.csv"
     source.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
-    assert main(
-        ["variance", "--forward", "99.5", "--time", "0.5", "--rate", "0.01",
-         "--quotes", str(source)]
-    ) == 0
+    assert (
+        main(
+            [
+                "variance",
+                "--forward",
+                "99.5",
+                "--time",
+                "0.5",
+                "--rate",
+                "0.01",
+                "--quotes",
+                str(source),
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     assert "listed strip of 21 strikes" in out
     # No exact answer is known for a quote file, so no error column is printed.
@@ -891,9 +1350,7 @@ def test_surface_reprices_its_own_quotes_through_the_local_volatility(
     """
     path = _quote_file(tmp_path / "quotes.csv", ORDERED_SLICES)
     assert (
-        main(
-            ["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05", "--reprice"]
-        )
+        main(["surface", "--quotes", str(path), "--spot", "100", "--rate", "0.05", "--reprice"])
         == 0
     )
     out = capsys.readouterr().out
@@ -912,9 +1369,24 @@ def _barrier_argv(*extra: str) -> list[str]:
     one below without the helper needing to know which flags were overridden.
     """
     return [
-        "barrier", "--spot", "100", "--strike", "100", "--time", "1",
-        "--rate", "0.05", "--dividend", "0.03", "--vol", "0.20",
-        "--level", "120", "--barrier", "up-and-out", *extra,
+        "barrier",
+        "--spot",
+        "100",
+        "--strike",
+        "100",
+        "--time",
+        "1",
+        "--rate",
+        "0.05",
+        "--dividend",
+        "0.03",
+        "--vol",
+        "0.20",
+        "--level",
+        "120",
+        "--barrier",
+        "up-and-out",
+        *extra,
     ]
 
 
@@ -941,11 +1413,7 @@ def test_barrier_shows_the_price_turning_over_in_volatility(
     """
     assert main(_barrier_argv("--vols", "0.10", "0.20", "0.30")) == 0
     out = capsys.readouterr().out
-    rows = [
-        one.split()
-        for one in out.splitlines()
-        if one.startswith("      0.")
-    ]
+    rows = [one.split() for one in out.splitlines() if one.startswith("      0.")]
     assert len(rows) == 3
     knocked = [float(row[1]) for row in rows]
     vanillas = [float(row[2]) for row in rows]
@@ -977,11 +1445,28 @@ def test_barrier_names_a_structurally_worthless_contract(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Zero with a reason beats zero on its own."""
-    assert main([
-        "barrier", "--spot", "100", "--strike", "130", "--time", "1",
-        "--rate", "0.05", "--vol", "0.20", "--level", "120",
-        "--barrier", "up-and-out",
-    ]) == 0
+    assert (
+        main(
+            [
+                "barrier",
+                "--spot",
+                "100",
+                "--strike",
+                "130",
+                "--time",
+                "1",
+                "--rate",
+                "0.05",
+                "--vol",
+                "0.20",
+                "--level",
+                "120",
+                "--barrier",
+                "up-and-out",
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     assert "worth exactly nothing" in out
     assert "requires breaching the barrier" in out
@@ -1002,8 +1487,18 @@ def test_asian_reports_the_interval_before_the_price(
         main(
             [
                 "asian",
-                "--spot", "100", "--strike", "100", "--time", "1",
-                "--rate", "0.05", "--vol", "0.2", "--fixings", "12",
+                "--spot",
+                "100",
+                "--strike",
+                "100",
+                "--time",
+                "1",
+                "--rate",
+                "0.05",
+                "--vol",
+                "0.2",
+                "--fixings",
+                "12",
             ]
         )
         == 0
@@ -1032,8 +1527,16 @@ def test_asian_flags_a_moment_matched_price_outside_the_bounds(
         main(
             [
                 "asian",
-                "--spot", "100", "--strike", "120", "--time", "1",
-                "--rate", "0.05", "--vol", "0.2",
+                "--spot",
+                "100",
+                "--strike",
+                "120",
+                "--time",
+                "1",
+                "--rate",
+                "0.05",
+                "--vol",
+                "0.2",
             ]
         )
         == 0
@@ -1048,9 +1551,18 @@ def test_asian_puts_report_the_geometric_price_as_an_upper_bound(
     assert (
         main(
             [
-                "asian", "--put",
-                "--spot", "100", "--strike", "100", "--time", "1",
-                "--rate", "0.05", "--vol", "0.2",
+                "asian",
+                "--put",
+                "--spot",
+                "100",
+                "--strike",
+                "100",
+                "--time",
+                "1",
+                "--rate",
+                "0.05",
+                "--vol",
+                "0.2",
             ]
         )
         == 0
@@ -1064,21 +1576,164 @@ def test_asian_fixing_table_shows_the_bounds_tightening(
     assert (
         main(
             [
-                "asian", "--fixing-table",
-                "--spot", "100", "--strike", "100", "--time", "1",
-                "--rate", "0.05", "--vol", "0.2",
+                "asian",
+                "--fixing-table",
+                "--spot",
+                "100",
+                "--strike",
+                "100",
+                "--time",
+                "1",
+                "--rate",
+                "0.05",
+                "--vol",
+                "0.2",
             ]
         )
         == 0
     )
     out = capsys.readouterr().out
     assert "fixings" in out
-    rows = [
-        line.split()
-        for line in out.splitlines()
-        if line.strip() and line.split()[0].isdigit()
-    ]
+    rows = [line.split() for line in out.splitlines() if line.strip() and line.split()[0].isdigit()]
     assert [row[0] for row in rows] == ["1", "2", "4", "12", "52", "252"]
     # a call on a denser average is cheaper, and the single fixing is the vanilla
     lowers = [float(row[1]) for row in rows]
     assert lowers == sorted(lowers, reverse=True)
+
+
+def test_spread_reports_the_interval_and_flags_kirk_outside_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The flag is the point of the command, so the case shown is one that trips it.
+
+    At a correlation of 0.9 and a strike of 1 Kirk reads below the
+    sub-replicating lower bound, which no price can do.
+    """
+    assert (
+        main(
+            [
+                "spread",
+                "--forward1",
+                "100",
+                "--forward2",
+                "95",
+                "--strike",
+                "1",
+                "--time",
+                "1",
+                "--rate",
+                "0.03",
+                "--vol1",
+                "0.30",
+                "--vol2",
+                "0.25",
+                "--rho",
+                "0.9",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "lower (half-space)" in out
+    assert "upper (vanillas)" in out
+    assert "outside the bounds, below the lower bound" in out
+    assert "exact, Margrabe" in out
+
+
+def test_spread_puts_price_and_stay_inside_the_interval(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert (
+        main(
+            [
+                "spread",
+                "--forward1",
+                "100",
+                "--forward2",
+                "95",
+                "--strike",
+                "5",
+                "--time",
+                "1",
+                "--rate",
+                "0.03",
+                "--vol1",
+                "0.30",
+                "--vol2",
+                "0.25",
+                "--rho",
+                "-0.4",
+                "--option",
+                "put",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "put on S1 - S2" in out
+    assert "outside the bounds" not in out
+
+
+def test_spread_reports_a_pair_it_cannot_price(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A total volatility past the quadrature's ceiling is a failure, not a number."""
+    assert (
+        main(
+            [
+                "spread",
+                "--forward1",
+                "100",
+                "--forward2",
+                "95",
+                "--strike",
+                "5",
+                "--time",
+                "100",
+                "--rate",
+                "0",
+                "--vol1",
+                "5.0",
+                "--vol2",
+                "0.3",
+                "--rho",
+                "0.9",
+            ]
+        )
+        == 1
+    )
+    captured = capsys.readouterr()
+    assert "cannot price" in captured.err
+
+
+def test_spread_at_a_zero_strike_closes_its_interval(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Both sides are then the exchange option, so the width prints as zero."""
+    assert (
+        main(
+            [
+                "spread",
+                "--forward1",
+                "100",
+                "--forward2",
+                "95",
+                "--strike",
+                "0",
+                "--time",
+                "1",
+                "--rate",
+                "0.03",
+                "--vol1",
+                "0.30",
+                "--vol2",
+                "0.25",
+                "--rho",
+                "0.3",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    width = next(float(line.split()[-1]) for line in out.splitlines() if "interval width" in line)
+    assert abs(width) < 1e-9

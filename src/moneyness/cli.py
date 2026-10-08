@@ -66,6 +66,15 @@ from .sabr import (
     lognormal_volatility,
     normal_volatility,
 )
+from .spread import (
+    AssetPair,
+    SpreadError,
+    accuracy_floor,
+    exchange,
+    kirk,
+    spread_bounds,
+    spread_price,
+)
 from .surface import Surface
 from .svi import SVI, Butterfly, calibrate
 from .variance import (
@@ -104,9 +113,7 @@ def _add_market(parser: argparse.ArgumentParser) -> None:
     carry.add_argument(
         "--future", action="store_true", help="option on a future, so the carry is zero"
     )
-    parser.add_argument(
-        "--put", action="store_true", help="price a put; the default is a call"
-    )
+    parser.add_argument("--put", action="store_true", help="price a put; the default is a call")
 
 
 def _option_of(args: argparse.Namespace) -> OptionType:
@@ -157,9 +164,7 @@ def _run_greeks(args: argparse.Namespace) -> int:
 
 
 def _run_iv(args: argparse.Namespace) -> int:
-    quote = Quote(
-        args.spot, args.strike, args.time, args.rate, args.price, carry=_carry_from(args)
-    )
+    quote = Quote(args.spot, args.strike, args.time, args.rate, args.price, carry=_carry_from(args))
     option = _option_of(args)
     limits = bounds(quote, option)
     method = Method.BRENT if args.brent else Method.NEWTON
@@ -311,9 +316,11 @@ def _run_surface(args: argparse.Namespace) -> int:
     carry = args.rate if args.carry is None else args.carry
 
     fitted: list[tuple[float, SVI]] = []
-    print(f"{'maturity':>9} {'quotes':>7} {'rmse':>11} {'max err':>11}"
-          f" {'a':>9} {'b':>8} {'rho':>8} {'m':>8} {'s':>8}"
-          f" {'left':>7} {'right':>7} {'worst g':>10}")
+    print(
+        f"{'maturity':>9} {'quotes':>7} {'rmse':>11} {'max err':>11}"
+        f" {'a':>9} {'b':>8} {'rho':>8} {'m':>8} {'s':>8}"
+        f" {'left':>7} {'right':>7} {'worst g':>10}"
+    )
     print("-" * 120)
 
     arbitrage = False
@@ -407,9 +414,7 @@ def _run_surface(args: argparse.Namespace) -> int:
             cells = []
             for time in times:
                 result = surface.local_vol(k, time)
-                cells.append(
-                    f"{result.volatility:>12.6f}" if result.admissible else f"{'--':>12}"
-                )
+                cells.append(f"{result.volatility:>12.6f}" if result.admissible else f"{'--':>12}")
             print(f"{k:>8.2f}" + "".join(cells))
 
     if args.reprice:
@@ -489,8 +494,7 @@ def _reprice(
             gap = recovered - quoted
             worst = max(worst, abs(gap))
             print(
-                f"{maturity:>9.4f} {strike:>10.4f} {quoted:>10.6f}"
-                f" {recovered:>10.6f} {gap:>+11.2e}"
+                f"{maturity:>9.4f} {strike:>10.4f} {quoted:>10.6f} {recovered:>10.6f} {gap:>+11.2e}"
             )
     print(f"worst gap in volatility: {worst:.3e}")
 
@@ -514,9 +518,7 @@ def _run_american(args: argparse.Namespace) -> int:
         )
         return 1
 
-    american = price_lattice(
-        inputs, option, steps=args.steps, lattice=lattice, smooth=not args.raw
-    )
+    american = price_lattice(inputs, option, steps=args.steps, lattice=lattice, smooth=not args.raw)
     european = price_lattice(
         inputs,
         option,
@@ -575,9 +577,7 @@ def _run_sabr(args: argparse.Namespace) -> int:
     if args.high < args.low:
         raise SystemExit("--high must not be below --low")
     try:
-        parameters = SabrParameters(
-            alpha=args.alpha, beta=args.beta, rho=args.rho, nu=args.nu
-        )
+        parameters = SabrParameters(alpha=args.alpha, beta=args.beta, rho=args.rho, nu=args.nu)
     except ValueError as bad:
         raise SystemExit(str(bad)) from bad
 
@@ -740,9 +740,7 @@ def _run_barrier(args: argparse.Namespace) -> int:
     previous = None
     turned = False
     for vol in args.vols:
-        moved = Inputs(
-            args.spot, args.strike, args.time, args.rate, vol, carry=_carry_from(args)
-        )
+        moved = Inputs(args.spot, args.strike, args.time, args.rate, vol, carry=_carry_from(args))
         here = barrier_price(moved, option, args.level, style)
         if previous is not None and here < previous:
             turned = True
@@ -764,15 +762,76 @@ def _run_barrier(args: argparse.Namespace) -> int:
             level = monitoring_shift(args.level, style, args.vol, frequency)
             value = barrier_price(inputs, option, level, style)
             share = value / continuous - 1.0 if continuous != 0.0 else float("nan")
-            print(
-                f"  {frequency:>8.0f}  {level:>11.6f}  {value:>11.6f}  "
-                f"{share:>+15.2%}"
-            )
+            print(f"  {frequency:>8.0f}  {level:>11.6f}  {value:>11.6f}  {share:>+15.2%}")
         print(
             "  the correction is first order in sqrt(dt): measured against "
             "simulation it is -0.33% off daily, +0.92% weekly and +6.82% "
             "monthly, so simulate a monthly contract rather than quoting this"
         )
+    return 0
+
+
+def _run_spread(args: argparse.Namespace) -> int:
+    """An option on the difference of two assets, with its rigorous interval.
+
+    Like the Asian command this leads with bounds rather than with a price,
+    and for the same reason: the difference of two lognormals has no closed
+    form, so an approximation on its own cannot be checked. Unlike the Asian
+    case the interval here carries extra information -- the upper bound holds
+    for every coupling of the two marginals, so how far it sits above the
+    price is a reading of how far this correlation is from the worst one.
+
+    Kirk's approximation is printed last and flagged when it leaves the
+    interval, which it does at positive correlation and short strikes, and
+    again at correlations near -1 and far strikes.
+    """
+    pair = AssetPair(
+        args.forward1,
+        args.forward2,
+        args.time,
+        args.rate,
+        args.vol1,
+        args.vol2,
+        args.rho,
+    )
+    call = args.option == "call"
+    strike = args.strike
+
+    try:
+        exact = spread_price(pair, strike, call=call)
+    except SpreadError as error:
+        print(f"cannot price: {error}", file=sys.stderr)
+        return 1
+    bounds = spread_bounds(pair, strike, call=call)
+
+    print(f"{'contract':>22}  {args.option} on S1 - S2 struck at {strike:g}")
+    print(f"{'forward spread':>22}  {pair.forward1 - pair.forward2:.10f}")
+    print(f"{'spread vol':>22}  {pair.spread_total / math.sqrt(pair.time):.10f}")
+    print()
+    print(f"{'price':>22}  {exact:.10f}")
+    print(f"{'resolves to':>22}  {accuracy_floor(pair, strike, call=call):.3e}  (absolute)")
+    print()
+    print(f"{'lower (half-space)':>22}  {bounds.lower:.10f}")
+    print(f"{'upper (vanillas)':>22}  {bounds.upper:.10f}")
+    print(f"{'interval width':>22}  {bounds.width:.10f}")
+    if exact > 0.0:
+        print(f"{'':>22}  {bounds.width / exact:.4f} of the price")
+    print()
+    if strike >= 0.0:
+        print(f"{'exchange (K=0)':>22}  {exchange(pair):.10f}  (exact, Margrabe)")
+    try:
+        approximate = kirk(pair, strike, call=call)
+    except SpreadError as error:
+        print(f"{'Kirk':>22}  unavailable: {error}")
+        return 0
+    print(f"{'Kirk':>22}  {approximate:.10f}")
+    if exact > 0.0:
+        print(f"{'':>22}  {(approximate - exact) / exact:+.3e} relative")
+    if not bounds.contains(approximate, slack=1e-12):
+        low = approximate < bounds.lower
+        side = "below the lower" if low else "above the upper"
+        miss = bounds.lower - approximate if low else approximate - bounds.upper
+        print(f"{'':>22}  outside the bounds, {side} bound by {miss:.3e}")
     return 0
 
 
@@ -801,10 +860,7 @@ def _run_asian(args: argparse.Namespace) -> int:
     print(f"{'contract':>22}  {option.value} on the average of {steps} fixings")
     print(f"{'average forward':>22}  {moments.first:.10f}")
     print(f"{'effective vol':>22}  {math.sqrt(moments.log_variance / inputs.time):.10f}")
-    print(
-        f"{'variance kept':>22}  {moments.log_variance / terminal:.6f}"
-        "  of the terminal price's"
-    )
+    print(f"{'variance kept':>22}  {moments.log_variance / terminal:.6f}  of the terminal price's")
     print()
     print(f"{'lower (Curran)':>22}  {bounds.lower:.10f}")
     print(f"{'upper':>22}  {bounds.upper:.10f}")
@@ -846,13 +902,9 @@ def _run_heston_path(args: argparse.Namespace) -> int:
     if args.steps < 1:
         raise SystemExit("--steps must be at least 1")
     model = Heston(args.v0, args.kappa, args.theta, args.sigma, args.rho)
-    contract = Contract(
-        args.spot, args.strike, args.time, args.rate, carry=_carry_from(args)
-    )
+    contract = Contract(args.spot, args.strike, args.time, args.rate, carry=_carry_from(args))
     option = _option_of(args)
-    settings = Settings(
-        paths=args.paths, seed=args.seed, antithetic=True, control=True
-    )
+    settings = Settings(paths=args.paths, seed=args.seed, antithetic=True, control=True)
 
     if args.payoff == "european":
         estimate = heston_european(
@@ -926,9 +978,7 @@ def _read_price_quotes(source: str) -> list[tuple[float, float]]:
         if not cleaned or cleaned[0].startswith("#"):
             continue
         if len(cleaned) < 2:
-            raise SystemExit(
-                f"row {number}: expected strike and price, got {len(cleaned)} fields"
-            )
+            raise SystemExit(f"row {number}: expected strike and price, got {len(cleaned)} fields")
         try:
             strike, value = (float(field) for field in cleaned[:2])
         except ValueError:
@@ -1055,6 +1105,7 @@ def _run_variance(args: argparse.Namespace) -> int:
     print()
 
     if priced is not None:
+
         def otm(strike: float) -> float:
             option = OptionType.CALL if strike >= args.forward else OptionType.PUT
             return priced(strike, option)
@@ -1075,9 +1126,7 @@ def _run_variance(args: argparse.Namespace) -> int:
             print(f"  exact answer   {target:.10f}")
             print(f"  relative error {replication.fair_variance / target - 1.0:+.3e}")
         if args.vol is not None:
-            predicted = truncation_error(
-                args.forward, args.time, args.vol, low_strike, high_strike
-            )
+            predicted = truncation_error(args.forward, args.time, args.vol, low_strike, high_strike)
             print(f"  predicted truncation {predicted:+.3e}")
         print()
 
@@ -1167,9 +1216,7 @@ def _parser() -> argparse.ArgumentParser:
     ladder_parser.add_argument("--steps", type=int, default=9, help="number of strikes")
     ladder_parser.set_defaults(handler=_run_ladder)
 
-    term_parser = sub.add_parser(
-        "term", help="a table of maturities at one strike"
-    )
+    term_parser = sub.add_parser("term", help="a table of maturities at one strike")
     term_parser.add_argument("--spot", type=float, required=True)
     term_parser.add_argument("--strike", type=float, required=True)
     term_parser.add_argument("--vol", type=float, required=True)
@@ -1197,9 +1244,7 @@ def _parser() -> argparse.ArgumentParser:
     surface_parser.add_argument(
         "--quotes", required=True, help="CSV of maturity,strike,vol, or - for standard input"
     )
-    surface_parser.add_argument(
-        "--spot", type=float, required=True, help="price of the underlying"
-    )
+    surface_parser.add_argument("--spot", type=float, required=True, help="price of the underlying")
     surface_parser.add_argument("--rate", type=float, default=0.0)
     surface_parser.add_argument(
         "--carry", type=float, default=None, help="cost of carry; defaults to the rate"
@@ -1224,12 +1269,8 @@ def _parser() -> argparse.ArgumentParser:
         "american", help="lattice valuation with the right to exercise early"
     )
     _add_market(american_parser)
-    american_parser.add_argument(
-        "--vol", type=float, required=True, help="annualised volatility"
-    )
-    american_parser.add_argument(
-        "--steps", type=int, default=512, help="number of lattice layers"
-    )
+    american_parser.add_argument("--vol", type=float, required=True, help="annualised volatility")
+    american_parser.add_argument("--steps", type=int, default=512, help="number of lattice layers")
     american_parser.add_argument(
         "--lattice",
         choices=[item.value for item in Lattice],
@@ -1267,9 +1308,7 @@ def _parser() -> argparse.ArgumentParser:
     heston_parser.add_argument("--v0", type=float, required=True, help="variance now")
     heston_parser.add_argument("--kappa", type=float, required=True, help="reversion speed")
     heston_parser.add_argument("--theta", type=float, required=True, help="long-run variance")
-    heston_parser.add_argument(
-        "--sigma", type=float, required=True, help="volatility of variance"
-    )
+    heston_parser.add_argument("--sigma", type=float, required=True, help="volatility of variance")
     heston_parser.add_argument(
         "--rho", type=float, required=True, help="price/variance correlation"
     )
@@ -1300,15 +1339,11 @@ def _parser() -> argparse.ArgumentParser:
     sabr_parser.add_argument("--forward", type=float, required=True)
     sabr_parser.add_argument("--time", type=float, required=True)
     sabr_parser.add_argument("--alpha", type=float, required=True, help="volatility now")
-    sabr_parser.add_argument(
-        "--beta", type=float, default=0.5, help="backbone exponent, in [0, 1]"
-    )
+    sabr_parser.add_argument("--beta", type=float, default=0.5, help="backbone exponent, in [0, 1]")
     sabr_parser.add_argument(
         "--rho", type=float, required=True, help="forward/volatility correlation"
     )
-    sabr_parser.add_argument(
-        "--nu", type=float, required=True, help="volatility of volatility"
-    )
+    sabr_parser.add_argument("--nu", type=float, required=True, help="volatility of volatility")
     sabr_parser.add_argument("--low", type=float, required=True, help="lowest strike")
     sabr_parser.add_argument("--high", type=float, required=True, help="highest strike")
     sabr_parser.add_argument("--steps", type=int, default=9, help="number of strikes")
@@ -1445,6 +1480,34 @@ def _parser() -> argparse.ArgumentParser:
         help="also show how the bounds tighten as the fixings get dense",
     )
     asian_parser.set_defaults(handler=_run_asian)
+
+    spread_parser = sub.add_parser(
+        "spread",
+        help="an option on the difference of two assets, with its interval",
+        description=(
+            "Prices an option on S1 - S2. There is no closed form, so the report "
+            "pairs the price with a rigorous interval: a sub-replicating "
+            "half-space below, two super-replicating vanillas above. The upper "
+            "bound uses no correlation at all, so its distance above the price "
+            "measures how far this correlation is from the worst one. Kirk's "
+            "approximation is shown inside the interval and flagged when it "
+            "leaves it."
+        ),
+    )
+    spread_parser.add_argument("--forward1", type=float, required=True)
+    spread_parser.add_argument("--forward2", type=float, required=True)
+    spread_parser.add_argument("--strike", type=float, default=0.0)
+    spread_parser.add_argument("--time", type=float, required=True)
+    spread_parser.add_argument("--rate", type=float, default=0.0)
+    spread_parser.add_argument("--vol1", type=float, required=True)
+    spread_parser.add_argument("--vol2", type=float, required=True)
+    spread_parser.add_argument(
+        "--rho", type=float, required=True, help="correlation of the two log returns"
+    )
+    spread_parser.add_argument(
+        "--option", choices=("call", "put"), default="call", help="side of the spread"
+    )
+    spread_parser.set_defaults(handler=_run_spread)
 
     variance_parser = sub.add_parser(
         "variance",
