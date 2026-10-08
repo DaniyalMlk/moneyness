@@ -72,8 +72,20 @@ Measured, at ``F1 = 100``, ``F2 = 95``, one year, 30% and 25% volatility:
   high correlation and short strikes — ``-1.5e-05`` at ``rho = 0.9, K = 1`` and
   ``-6.9e-05`` at ``rho = 0.8, K = 5`` — and high everywhere else, reaching
   ``+1.5e-02`` at ``rho = 0.9, K = 20`` and ``+5.5e-03`` at ``rho = -0.8,
-  K = 20``. What is monotone is the strike: at every correlation measured the
-  error grows with it.
+  K = 20``.
+* **And it leaves the rigorous bracket at 18 of 84 points.** Fifteen sit below
+  the sub-replicating lower bound, all at positive correlation and short
+  strikes, by up to 1.1e-03 relative at ``rho = 0.99, K = 2``. Three sit above
+  the super-replicating upper bound at near-perfect negative correlation and
+  far strikes, by up to **1.9e-02** at ``rho = -0.99, K = 40`` — which is above
+  the price under every coupling of the two marginals, not merely above this
+  one. An approximation can be wrong; this is wrong in a direction no model
+  can be.
+* **The size of the error is monotone in the strike only where its sign is
+  fixed.** At all six non-positive correlations swept it reads high at every
+  strike and grows with it. At ``rho = 0.5`` and ``rho = 0.95`` the crossing
+  lands inside the strike range and the ordering fails — at neither of the
+  correlations a sweep of the negative side would have reached.
 * **The lower bound is usually the better number, and not always.** Across 84
   points its gap below the price is a median **59 times** smaller than Kirk's
   error, reaching a factor of ten million at ``rho = -0.99``. But it loses at
@@ -93,7 +105,11 @@ Measured, at ``F1 = 100``, ``F2 = 95``, one year, 30% and 25% volatility:
   the price is 1.1e-02 at ``rho = -0.95`` and 9.7 — nearly a factor of ten — at
   ``rho = 0.9, K = 20``, because that is the distance from the worst case it
   prices. The bracket is 1.1% of the price wide at ``rho = -0.95`` and 484% at
-  ``rho = 0.9``.
+  ``rho = 0.9``. At a *zero* strike it closes completely: ``S1 > S2`` is
+  already a linear condition on the driving Gaussian, so the best half-space
+  is the exercise region itself and the dominating exchange option is the same
+  price. The interval is then a point, and its residual width is the
+  quadrature's round-off rather than any looseness.
 * **The kink has to go on a panel edge, and the cost of missing it does not
   announce itself.** With no volatility on the first asset the integrand is
   genuinely kinked at one point, and uniform panels at 24, 48, 96 and 192
@@ -589,21 +605,26 @@ def vanilla_split(pair: Pair, strike: float) -> float:
     because a direct search on the portfolio value tops out several orders
     short of that.
     """
-    low = max(0.0, strike) + 1e-12
     total1, total2 = pair.total1, pair.total2
+    if total1 <= 0.0 or total2 <= 0.0:
+        raise SpreadError(
+            "no split level is defined when an asset has no volatility; the "
+            "bound there is the dominating one"
+        )
+    low = max(0.0, strike) + 1e-12
 
     def residual(level: float) -> float:
         first = (math.log(pair.forward1 / level) - 0.5 * total1**2) / total1
         second = (math.log(pair.forward2 / (level - strike)) - 0.5 * total2**2) / total2
         return first + second
 
-    # The residual falls from ``+inf`` at the floor to ``-inf`` as the level
-    # grows, so the bracket is a positive left end and a negative right one.
+    # Both logarithms fall without limit as the level grows and rise without
+    # limit at the floor, and the totals that divide them are positive, so the
+    # residual runs from ``+inf`` to ``-inf`` and a bracket always exists. The
+    # loops below find it rather than guarding against its absence.
     high = max(low * 2.0, pair.forward1 + pair.forward2 + abs(strike) + 1.0)
     while residual(high) > 0.0:
         high *= 2.0
-        if high > 1e18:
-            raise SpreadError("no finite split level brackets the vanilla bound")
     while residual(low) < 0.0:
         low = max(0.0, strike) + (low - max(0.0, strike)) * 0.5
         if low - max(0.0, strike) < 1e-300:
