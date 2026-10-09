@@ -85,7 +85,28 @@ from .lattice import (
     price_lattice,
     richardson,
 )
-from .monte_carlo import Barrier, Estimate, Settings, asian, barrier, european, geometric_asian
+from .lookback import (
+    CARRY_CROSSOVER,
+    LookbackError,
+    expected_maximum,
+    expected_minimum,
+    lookback_price,
+    maximum_cdf,
+    maximum_excess,
+    minimum_cdf,
+    minimum_shortfall,
+)
+from .monte_carlo import (
+    Barrier,
+    Estimate,
+    Lookback,
+    Settings,
+    asian,
+    barrier,
+    european,
+    geometric_asian,
+    lookback,
+)
 from .normal import norm_cdf, norm_pdf, norm_ppf
 from .pde import (
     DupireLocalVol,
@@ -166,6 +187,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "BARRIER_DIGITS",
+    "CARRY_CROSSOVER",
     "SVI",
     "AsianBounds",
     "AssetPair",
@@ -192,6 +214,8 @@ __all__ = [
     "LocalVol",
     "LocalVolError",
     "LocalVolatility",
+    "Lookback",
+    "LookbackError",
     "MartingaleCorrectionError",
     "Mesh",
     "MeshPrice",
@@ -246,6 +270,8 @@ __all__ = [
     "durrleman",
     "european",
     "exchange",
+    "expected_maximum",
+    "expected_minimum",
     "fair_variance",
     "fair_variance_from_strip",
     "fixed_quad",
@@ -266,7 +292,13 @@ __all__ = [
     "lewis_price",
     "log_moneyness",
     "lognormal_volatility",
+    "lookback",
+    "lookback_price",
+    "maximum_cdf",
+    "maximum_excess",
     "min_steps",
+    "minimum_cdf",
+    "minimum_shortfall",
     "monitoring_shift",
     "monitoring_times",
     "norm_cdf",
