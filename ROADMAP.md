@@ -663,3 +663,57 @@ times smaller than Kirk's error and up to ten million times smaller at a
 correlation of -0.99. But it loses at eight of eighty-four points, by up to a
 factor of three at high correlation and far strikes, so the case for it is not
 that it is always closer. It is that its error has a sign.
+
+## Phase 17 — Where the path got to
+
+- [x] The distribution of the running maximum and minimum under the
+      cost-of-carry model, public rather than buried in a pricer, with the two
+      values that are exact returned exactly
+- [x] The undiscounted expectations of the extreme's excess and shortfall, in
+      closed form, as the one integral the four contracts are rearrangements of
+- [x] The two groupings of that integral written out, because the one with the
+      carry in the denominator divides by zero on an option on a future
+- [x] The crossover between them placed by a sweep, with the worst relative
+      error of the pair reported against each one alone
+- [x] The four lookbacks, each taking the extreme recorded so far, since the
+      contract is almost always seasoned by the time a price is wanted
+- [x] The exact relations between them asserted as identities: the translation
+      in the strike, and the forward between the two contracts on the maximum
+- [x] Rigorous inequalities against the European, which hold on the payoff and
+      so cannot be satisfied by a self-consistent wrong formula
+- [x] A simulation that draws each step's extreme from the Brownian bridge, so
+      that it is unbiased for the continuous contract rather than converging to
+      it, checked over independent seeds for the sign of its deviation
+- [x] The discretely monitored contract priced as itself, since a lookback has
+      no level to shift the way a barrier does
+- [x] A command-line entry point whose monitoring table is simulated, and says
+      so
+
+The two modules on path-dependent payoffs divide the reflection principle
+between them. Phase 14 needed the probability that the running extreme crossed
+a level; this one needs the whole law, and once that law is written down the
+four textbook formulas collapse into one integral of its tail plus four
+rearrangements. That is worth doing for a reason beyond tidiness: four
+transcribed formulas have four opportunities for a term to go in with the wrong
+sign and no way to tell, while one integral checked against fifty-digit
+quadrature has one.
+
+### Zero carry is a case, not a corner
+
+The analytic integral produces `sigma^2 / (2b)` multiplying a difference of two
+terms that converge as the carry goes to zero, so the form everybody writes
+down raises on a contract this package explicitly supports. Regrouping it
+around an `expm1` and a symmetric band of the normal law reaches the limit
+instead of approaching it — and then fails when the carry is large, where the
+first form is exact. Neither is right everywhere and the pair is, which is why
+both are in the module rather than one.
+
+### A barrier's monitoring correction has no lookback analogue
+
+Shifting the barrier away from the spot by `exp(0.5826 sigma sqrt(dt))` turns a
+discretely monitored contract into a continuously monitored one at a different
+level, and that is why phase 14 could tabulate monitoring in closed form. There
+is no level in a lookback to shift; the correction is to the extreme, and the
+extreme is the payoff. So the discrete contract is simulated, and the gap is
+worth knowing: 17.8% at a monthly fix on a one-year contract, which is in the
+other direction from the barrier's +13.3% daily and of the same order.

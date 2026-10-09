@@ -1027,6 +1027,111 @@ genuine half-space, and peaks in between: 3.1e-10, 1.0e-06, 5.9e-06, 2.4e-05,
 0.5, 0.8, 0.95, 0.999. Any sweep stopping at 0.9 would have shown it growing
 throughout.
 
+## A seventeenth decision: one tail integral, not four closed forms
+
+A lookback pays on where the path got to. There are four of them — the extreme
+against a strike, and the terminal price against the extreme, each way round —
+and the usual treatment is four closed forms copied out of a table. They are all
+the same integral. Write the payoff as a layer cake,
+
+```
+(M_T - L)^+ = int_L^inf 1{M_T > y} dy
+```
+
+and the expectation is an integral of the running maximum's tail, which the
+reflection principle gives directly. So `moneyness.lookback` has two functions
+that matter, `maximum_excess` and `minimum_shortfall`, and the four contracts,
+the expected extremes and the relations between them are rearrangements of
+those.
+
+```bash
+moneyness lookback --spot 100 --strike 100 --time 1 \
+    --rate 0.05 --carry 0.05 --vol 0.2 --monitorings 252 52 12
+```
+
+```
+              contract  fixed-strike call, extreme so far the spot
+                 price  19.1676252573
+               vanilla  10.4505835722
+               forward  105.1271096376
+            E[maximum]  120.1503704192
+            E[minimum]  87.0275830734
+        P(max <= spot)  0.0
+        P(min <= spot)  1.0
+
+  per year        price      std err   vs continuous
+       252    18.372059     0.033563           -4.15%
+        52    17.416833     0.033243           -9.13%
+        12    15.812022     0.032355          -17.51%
+```
+
+Two of those probabilities are exact rather than tight. A Brownian path leaves
+its starting point in both directions immediately, so the maximum exceeds the
+spot and the minimum falls below it with probability one — and the reflection
+formula evaluated at that point is a difference of two equal terms, which
+returns something near 1e-17 rather than nothing. Harmless on its own, and not
+harmless inside a tail integral.
+
+### The textbook form divides by zero on an option on a future
+
+Integrating the tail analytically leaves a factor of `sigma^2 / (2b)` against a
+difference of two terms that become equal as the carry vanishes. The direct
+transcription therefore divides by zero when `b` is exactly zero — which is
+what `Inputs.on_future` sets it to, so the contract that breaks it is one of the
+conventions this package advertises in its first paragraph.
+
+Pulling the shared exponential out instead leaves an `expm1` and a band of the
+normal law between two symmetric arguments, both of which survive the limit. The
+two groupings then fail in opposite regimes, and that is the finding: the direct
+one is accurate to 2.0e-15 at a 1% carry and degrades to 2.4e-12 at 1e-6 and to
+5.7e-10 at a level 2.7 times the spot, while the regrouped one holds those same
+cases to 1e-14 or better and is wrong by a *factor of 4e+24* once `2b / sigma^2`
+reaches 100, because the exponential it factors out then dwarfs the difference
+it multiplies.
+
+Over 7,840 combinations of level, carry, volatility and maturity — 6,765 of them
+above a floor of 1e-8 times the spot, below which a relative error measures
+round-off rather than method — switching at `|2b / sigma^2| = 1` gives a worst
+relative error of 3.3e-13 against 8.4e-09 for the direct form alone. The
+crossover is not tuned: the same sweep gives 3.3e-13 at 0.5 and at 2.
+
+### Monitoring is worth more than the correction that would represent it
+
+`moneyness.barrier` can tabulate discrete monitoring in closed form, because a
+barrier checked at the close is representable as a barrier at a shifted level.
+A lookback cannot: the correction is to the extreme itself and there is no level
+to move. So the monitoring table above is simulated, and the simulation is of
+the discrete contract rather than of a correction to the continuous one.
+
+The gaps are large and they point the other way from a barrier's. A maximum
+taken at the close is smaller, so every lookback is worth less: 4.2% less daily,
+9.2% weekly and 17.8% monthly for the fixed-strike call struck at the spot, and
+3.4%, 7.5% and 14.7% for the floating-strike call. Quoting the continuous price
+for a monthly fix is an 18% error.
+
+That simulation is also the only check here that owes nothing to the reflection
+principle, so it has to be unbiased, and a path observed on a grid is not. Its
+maximum is smaller than the maximum of the path it was drawn from, and the bias
+dies like one over the square root of the step count rather than fast enough to
+spend steps on. Conditional on its two endpoints a Brownian path over a step is
+a bridge, whose maximum has an invertible distribution function, so one extra
+uniform per step draws the true extreme. Over five seeds at 40 steps the
+simulated prices land between -1.2 and +1.7 standard errors of the closed form
+and scatter either side; the same run with the bridge off is 101 standard errors
+low.
+
+### A property that was true and the wrong property
+
+`Inputs.is_degenerate` asks whether the terminal payoff carries any
+uncertainty, and a zero strike is one of its cases: a call struck at nothing is
+worth the forward whatever the path does. A lookback's strike says nothing about
+the path — a floating-strike one does not read the strike at all — so reusing
+that property priced a zero-strike floating-strike call off a deterministic path
+and returned **4.98** where the answer is 17.56. What matters here is whether
+the *path* is deterministic, which is no time or no volatility and nothing else.
+A test asserting that the floating styles ignore the strike is what caught it,
+and that test exists because the docstring claims they do.
+
 ## Running the tests
 
 ```bash
@@ -1112,6 +1217,16 @@ rigorous interval. The upper side of that interval is built from two vanilla
 options and carries no correlation at all, which turns out to equal the price
 at a correlation of minus one to 1e-13; and inside it, Kirk sits outside the
 bounds at 18 of 84 points swept.
+
+Phase 17 adds the other half of what the reflection principle gives. Where
+phase 14 asked whether the running extreme crossed a level, `moneyness.lookback`
+prices contracts on where it got to — all four from one analytic integral of the
+extreme's tail, with the law of that extreme public because a stop-loss or a
+high-water-mark fee is written on it and neither is an option. The carry appears
+as a `sigma^2 / (2b)` that the textbook form divides by, so an option on a
+future breaks it; two groupings that fail in opposite regimes hold it to 3.3e-13
+across the sweep. And the monitoring table has to be simulated rather than
+corrected, which is where the 17.8% gap at a monthly fix comes from.
 
 Every item on [the roadmap](ROADMAP.md) is now done except the first release
 on the package index, which waits on the publisher being registered there.

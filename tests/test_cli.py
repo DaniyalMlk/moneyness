@@ -1737,3 +1737,117 @@ def test_spread_at_a_zero_strike_closes_its_interval(
     out = capsys.readouterr().out
     width = next(float(line.split()[-1]) for line in out.splitlines() if "interval width" in line)
     assert abs(width) < 1e-9
+
+
+def _lookback_argv(*extra: str) -> list[str]:
+    return [
+        "lookback",
+        "--spot",
+        "100",
+        "--strike",
+        "100",
+        "--time",
+        "1",
+        "--rate",
+        "0.05",
+        "--carry",
+        "0.05",
+        "--vol",
+        "0.2",
+        *extra,
+    ]
+
+
+def test_lookback_prices_all_four_and_shows_the_exact_cases(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The exact probabilities are printed to one decimal on purpose.
+
+    ``P(max <= spot)`` is zero and ``P(min <= spot)`` is one, not nearly, and
+    the report says so where a reader will see it rather than leaving it in a
+    docstring.
+    """
+    assert main(_lookback_argv("--monitorings")) == 0
+    out = capsys.readouterr().out
+    assert "fixed-strike call, extreme so far the spot" in out
+    for label in (
+        "fixed-strike call",
+        "fixed-strike put",
+        "floating-strike call",
+        "floating-strike put",
+    ):
+        assert label in out
+    assert "P(max <= spot)  0.0" in out
+    assert "P(min <= spot)  1.0" in out
+
+
+def test_lookback_reports_the_forward_identity_residual(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(_lookback_argv("--monitorings")) == 0
+    out = capsys.readouterr().out
+    line = next(one for one in out.splitlines() if "discounted carry leg" in one)
+    assert abs(float(line.split()[-1])) < 1e-12
+
+
+def test_lookback_expected_extremes_bracket_the_forward(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(_lookback_argv("--monitorings")) == 0
+    out = capsys.readouterr().out
+    values = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] in ("forward", "E[maximum]", "E[minimum]"):
+            values[parts[0]] = float(parts[1])
+    assert values["E[minimum]"] < 100.0 < values["forward"] < values["E[maximum]"]
+
+
+def test_lookback_simulates_the_discrete_contract_rather_than_shifting_a_level(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The monitoring rows must be below the continuous price, and ordered.
+
+    A lookback observed less often has a less extreme extreme, so it is worth
+    less — the opposite sign from the barrier command's table, and the reason
+    the two reports do not share a shape.
+    """
+    assert main(_lookback_argv("--monitorings", "52", "12", "--paths", "4000")) == 0
+    out = capsys.readouterr().out
+    assert "vs continuous" in out
+    assert "no level to shift" in out
+    rows = [
+        one.split()
+        for one in out.splitlines()
+        if one.startswith("        52") or one.startswith("        12")
+    ]
+    assert len(rows) == 2
+    weekly, monthly = (float(row[1]) for row in rows)
+    assert monthly < weekly
+    assert all(row[3].startswith("-") for row in rows)
+
+
+def test_lookback_takes_a_recorded_extreme(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(_lookback_argv("--monitorings", "--observed", "130")) == 0
+    out = capsys.readouterr().out
+    assert "extreme so far 130" in out
+    seasoned = float(
+        next(one for one in out.splitlines() if one.strip().startswith("price")).split()[
+            1
+        ]
+    )
+    assert main(_lookback_argv("--monitorings")) == 0
+    fresh_out = capsys.readouterr().out
+    fresh = float(
+        next(
+            one for one in fresh_out.splitlines() if one.strip().startswith("price")
+        ).split()[1]
+    )
+    assert seasoned > fresh
+
+
+def test_lookback_refuses_a_non_positive_monitoring(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit, match="--monitorings must be positive"):
+        main(_lookback_argv("--monitorings", "0"))

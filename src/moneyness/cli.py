@@ -56,7 +56,15 @@ from .heston_mc import barrier as heston_barrier
 from .heston_mc import european as heston_european
 from .implied import Method, Quote, black, bounds, implied_vol, solve
 from .lattice import Exercise, Lattice, boundary, min_steps, price_lattice, richardson
-from .monte_carlo import Barrier, Settings
+from .lookback import (
+    expected_maximum,
+    expected_minimum,
+    lookback_price,
+    maximum_cdf,
+    minimum_cdf,
+)
+from .monte_carlo import Barrier, Lookback, Settings
+from .monte_carlo import lookback as simulate_lookback
 from .pde import LocalVolError, Mesh, dupire_local_vol, price_pde
 from .sabr import (
     SabrParameters,
@@ -771,6 +779,88 @@ def _run_barrier(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_lookback(args: argparse.Namespace) -> int:
+    """A lookback option, and why a monitoring table has to be simulated.
+
+    The report leads with all four contracts rather than the one asked for,
+    because the four are rearrangements of one tail integral and seeing them
+    together is what makes the forward identity between the fixed-strike call
+    and the floating-strike put visible. The expected extremes are printed for
+    the same reason: they are the same integral read at the spot.
+
+    Then the monitoring table, which is the point of the command. A barrier's
+    discrete monitoring can be represented by shifting the level, so
+    ``barrier`` can tabulate it in closed form. A lookback's cannot: the
+    correction is to the extreme itself, and there is no level to move. So each
+    row is a simulation of the genuinely discrete contract, with its standard
+    error printed beside it, and the gap to the continuous price is large
+    enough that nobody should quote the continuous number for a monthly fix.
+    """
+    inputs = _inputs_of(args)
+    option = _option_of(args)
+    style = Lookback(args.style)
+    observed = args.observed
+
+    values = {
+        (st, opt): lookback_price(inputs, opt, st, observed=None)
+        for st in Lookback
+        for opt in (OptionType.CALL, OptionType.PUT)
+    }
+    asked = lookback_price(inputs, option, style, observed=observed)
+
+    recorded = "the spot" if observed is None else f"{observed:g}"
+    print(f"{'contract':>22}  {style.value} {option.value}, extreme so far {recorded}")
+    print(f"{'price':>22}  {asked:.10f}")
+    print(f"{'vanilla':>22}  {price(inputs, option):.10f}")
+    print(f"{'forward':>22}  {forward(inputs):.10f}")
+    print(f"{'E[maximum]':>22}  {expected_maximum(inputs):.10f}")
+    print(f"{'E[minimum]':>22}  {expected_minimum(inputs):.10f}")
+    print(f"{'P(max <= spot)':>22}  {maximum_cdf(inputs, args.spot):.1f}")
+    print(f"{'P(min <= spot)':>22}  {minimum_cdf(inputs, args.spot):.1f}")
+
+    print()
+    print("  the four fresh contracts, at this strike")
+    for st in Lookback:
+        for opt in (OptionType.CALL, OptionType.PUT):
+            label = f"{st.value} {opt.value}"
+            print(f"  {label:>26}  {values[(st, opt)]:>13.6f}")
+    legs = inputs.discount * (forward(inputs) - args.spot)
+    residual = (
+        values[(Lookback.FIXED_STRIKE, OptionType.CALL)]
+        - values[(Lookback.FLOATING_STRIKE, OptionType.PUT)]
+        - legs
+    )
+    if args.strike == args.spot:
+        print(
+            f"  the fixed-strike call struck at the spot and the floating-strike "
+            f"put differ by the discounted carry leg of {legs:.6f}: residual "
+            f"{residual:+.3e}"
+        )
+
+    if args.monitorings:
+        print()
+        print("  per year        price      std err   vs continuous")
+        settings = Settings(paths=args.paths, seed=args.seed)
+        for frequency in args.monitorings:
+            if frequency <= 0.0:
+                raise SystemExit("--monitorings must be positive")
+            steps = max(1, round(frequency * args.time))
+            estimate = simulate_lookback(
+                inputs, option, style, steps, settings, observed=observed, bridge=False
+            )
+            share = estimate.value / asked - 1.0 if asked != 0.0 else float("nan")
+            print(
+                f"  {frequency:>8.0f}  {estimate.value:>11.6f}  "
+                f"{estimate.standard_error:>11.6f}  {share:>+15.2%}"
+            )
+        print(
+            "  each row is the discrete contract simulated, not the continuous "
+            "one corrected: unlike a barrier there is no level to shift, so a "
+            "closed form for a monthly fix does not exist"
+        )
+    return 0
+
+
 def _run_spread(args: argparse.Namespace) -> int:
     """An option on the difference of two assets, with its rigorous interval.
 
@@ -1408,6 +1498,53 @@ def _parser() -> argparse.ArgumentParser:
         help="monitoring frequencies to price by the continuity correction",
     )
     barrier_parser.set_defaults(handler=_run_barrier)
+
+    lookback_parser = sub.add_parser(
+        "lookback",
+        help="an option on where the path got to, and the cost of monitoring it",
+        description=(
+            "Prices all four lookbacks in closed form from one tail integral, "
+            "with the expected extremes and the forward identity between the "
+            "fixed-strike call and the floating-strike put. Then a monitoring "
+            "table, which has to be simulated: a barrier's discrete monitoring "
+            "can be represented by shifting the level, and a lookback's cannot, "
+            "because the correction is to the extreme itself. A monthly fix is "
+            "worth around eighteen per cent less than the continuous contract, "
+            "so the continuous price is not a quote."
+        ),
+    )
+    _add_market(lookback_parser)
+    lookback_parser.add_argument(
+        "--vol", type=float, required=True, help="annualised lognormal volatility"
+    )
+    lookback_parser.add_argument(
+        "--style",
+        choices=[item.value for item in Lookback],
+        default=Lookback.FIXED_STRIKE.value,
+        help="settle the extreme against the strike, or the terminal price against the extreme",
+    )
+    lookback_parser.add_argument(
+        "--observed",
+        type=float,
+        default=None,
+        metavar="LEVEL",
+        help="the extreme recorded so far; the default is a contract starting today",
+    )
+    lookback_parser.add_argument(
+        "--monitorings",
+        type=float,
+        nargs="*",
+        default=(52.0, 12.0),
+        metavar="PER_YEAR",
+        help="monitoring frequencies to simulate the discrete contract at",
+    )
+    lookback_parser.add_argument(
+        "--paths", type=int, default=20_000, help="paths per monitoring row"
+    )
+    lookback_parser.add_argument(
+        "--seed", type=int, default=0, help="seed for the monitoring simulations"
+    )
+    lookback_parser.set_defaults(handler=_run_lookback)
 
     path_parser = sub.add_parser(
         "heston-path",

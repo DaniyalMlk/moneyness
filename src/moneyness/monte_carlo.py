@@ -42,11 +42,13 @@ from .normal import norm_ppf
 __all__ = [
     "Barrier",
     "Estimate",
+    "Lookback",
     "Settings",
     "asian",
     "barrier",
     "european",
     "geometric_asian",
+    "lookback",
 ]
 
 
@@ -154,6 +156,31 @@ class Barrier(str, Enum):
     @property
     def is_knock_out(self) -> bool:
         return self in (Barrier.DOWN_AND_OUT, Barrier.UP_AND_OUT)
+
+
+class Lookback(str, Enum):
+    """Which end of the path a lookback settles against.
+
+    A fixed-strike lookback exercises the running extreme against a strike; a
+    floating-strike one exercises the terminal price against the running
+    extreme, which is why it has no strike of its own.
+    """
+
+    FIXED_STRIKE = "fixed-strike"
+    FLOATING_STRIKE = "floating-strike"
+
+    @property
+    def is_fixed(self) -> bool:
+        return self is Lookback.FIXED_STRIKE
+
+    def reads_maximum(self, option: OptionType) -> bool:
+        """Whether this contract settles against the maximum rather than the minimum.
+
+        A fixed-strike call pays on how high the path got and a floating-strike
+        put pays on how high it got relative to where it ended, so those two
+        read the maximum; the other two read the minimum.
+        """
+        return (option is OptionType.CALL) is self.is_fixed
 
 
 def _check(inputs: Inputs) -> None:
@@ -574,5 +601,123 @@ def barrier(
         controls if settings.control else None,
         control_mean,
         "vanilla payoff on the same paths",
+        settings.samples * (2 if settings.antithetic else 1),
+    )
+
+
+def lookback(
+    inputs: Inputs,
+    option: OptionType,
+    style: Lookback,
+    steps: int,
+    settings: Settings | None = None,
+    *,
+    observed: float | None = None,
+    bridge: bool = True,
+) -> Estimate:
+    """Price a lookback option by simulation, optionally with the bridge extreme.
+
+    A path sampled on a grid has a smaller maximum and a larger minimum than the
+    continuous path it was drawn from, so a lookback priced off the grid is
+    biased *low* — in the opposite direction from the knock-out in
+    :func:`barrier`, and for the same reason. The bias dies like one over the
+    square root of the step count, so it is not a matter of using more steps.
+
+    Conditional on its two endpoints a Brownian path over one step is a bridge,
+    and the maximum of a bridge has an invertible distribution function:
+
+        P(max <= x) = 1 - exp(-2 x (x - y) / (v^2 dt))
+
+    for a bridge from 0 to ``y``. Inverting it turns one uniform draw into the
+    step's true maximum, so the simulation is unbiased for the continuously
+    monitored contract rather than converging to it. Only the extreme the
+    contract needs is drawn: the maximum and the minimum of one bridge are
+    dependent, and two independent draws would not be their joint law, so a
+    function returning both would be wrong for any contract reading both.
+
+    Args:
+        inputs: The option and its market.
+        option: Call or put.
+        style: Fixed strike, settling the extreme against ``inputs.strike``, or
+            floating strike, settling the terminal price against the extreme. A
+            floating-strike contract does not read the strike.
+        steps: Monitoring dates, equally spaced, the last at expiry.
+        settings: Simulation settings.
+        observed: The extreme recorded so far. Defaults to the spot.
+        bridge: Draw each step's extreme from the bridge, giving the
+            continuously monitored price. With it off, the result is the
+            genuinely discretely monitored price at ``steps`` observations,
+            which is a different contract and not a worse estimate of this one.
+
+    Returns:
+        An :class:`Estimate`.
+
+    Raises:
+        ValueError: If ``steps`` is below one, the observed extreme is not
+            positive or lies on the wrong side of the spot, or time, volatility
+            or spot is not positive.
+    """
+    _check(inputs)
+    if steps < 1:
+        raise ValueError(f"steps must be at least 1, got {steps}")
+    upper = style.reads_maximum(option)
+    if observed is None:
+        recorded = inputs.spot
+    elif observed <= 0.0:
+        raise ValueError(f"the observed extreme must be positive, got {observed}")
+    elif upper and observed < inputs.spot:
+        raise ValueError(
+            f"an observed maximum of {observed} is below the spot of {inputs.spot}"
+        )
+    elif not upper and observed > inputs.spot:
+        raise ValueError(
+            f"an observed minimum of {observed} is above the spot of {inputs.spot}"
+        )
+    else:
+        recorded = observed
+
+    settings = settings or Settings()
+    discount = inputs.discount
+    sign = option.sign
+    strike = inputs.strike
+    dt = inputs.time / steps
+    step_variance = inputs.vol * inputs.vol * dt
+    # Independent of the normals that drive the path, so a separate stream
+    # keeps the antithetic pairing of the path draws intact.
+    uniforms = random.Random(settings.seed + 1)
+    control_mean = inputs.spot * math.exp((inputs.b - inputs.rate) * inputs.time)
+    fixed = style.is_fixed
+
+    def sample(draw: Sequence[float]) -> tuple[float, float]:
+        levels = _path(inputs, draw)
+        extreme = recorded
+        previous = inputs.spot
+        for current in levels:
+            if bridge:
+                step = math.log(current / previous)
+                root = math.sqrt(
+                    step * step - 2.0 * step_variance * math.log(uniforms.random())
+                )
+                shift = 0.5 * (step + root) if upper else 0.5 * (step - root)
+                reached = previous * math.exp(shift)
+            else:
+                reached = current
+            extreme = max(extreme, reached) if upper else min(extreme, reached)
+            previous = current
+
+        terminal = levels[-1]
+        payoff = (
+            max(sign * (extreme - strike), 0.0)
+            if fixed
+            else sign * (terminal - extreme)
+        )
+        return discount * payoff, discount * terminal
+
+    payoffs, controls = _replicate(settings, steps, sample)
+    return _summarise(
+        payoffs,
+        controls if settings.control else None,
+        control_mean,
+        "discounted terminal price",
         settings.samples * (2 if settings.antithetic else 1),
     )
