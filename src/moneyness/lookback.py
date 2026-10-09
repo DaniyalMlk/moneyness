@@ -13,9 +13,10 @@ where ``M_T`` and ``m_T`` are the running maximum and minimum over the life.
 The four standard lookbacks are rearrangements of those, and so is the expected
 extreme, so there is one formula to get right rather than four. The
 rearrangements are exact and are written as such — a fixed-strike call struck
-below the spot is the at-the-spot one plus the discounted difference of the
-strikes, and that holds to **0.0** rather than to a tolerance, because the same
-function supplies both.
+below the running maximum is the one struck at that maximum plus the discounted
+difference of the strikes, and that holds to **1.3e-15** across a grid of
+carries and volatilities, which is the subtraction's own round-off and not the
+formula's, because both sides read the same tail integral.
 
 **The distribution of the extreme is public.** :func:`maximum_cdf` and
 :func:`minimum_cdf` are not an implementation detail of the pricers: the law of
@@ -76,10 +77,32 @@ difference of the two deterministic legs, so
 
     fixed call at K = S  -  floating put  =  e^{-rT} (S - S e^{bT})
 
-holds to **0.0** rather than to a tolerance, and on a simulation the two
-payoffs differ by a constant on every path and come out with the same standard
-error to the last digit. It is a transcription check and nothing more, which is
-why the independent checks below are the ones that matter.
+holds to **2.1e-14** on a spot of 100 across every carry and volatility tried,
+and on a simulation the two payoffs differ by a constant on every path and come
+out with the same standard error to the last digit. Measured against the
+difference rather than against the spot it degrades to 1.6e-10 at a carry of
+1e-6, where two prices of about 17 are being subtracted to leave 1e-4; that is
+the cancellation in the comparison and not in either price. It is a
+transcription check either way, which is why the independent checks below are
+the ones that matter.
+
+**``Inputs.is_degenerate`` is the wrong question to ask here**, and asking it
+cost a wrong price before a test caught it. That property is true when the
+*terminal payoff* carries no uncertainty, and a zero strike is one of its
+cases, because a call struck at nothing is worth the forward whatever the path
+does. A lookback's strike says nothing about the path: a floating-strike call
+does not read the strike at all. Pricing one with the strike set to zero off a
+deterministic path returned **4.98** where the answer is 17.56. What matters
+here is whether the path itself is deterministic, which is no time or no
+volatility and nothing else.
+
+**The complement of the distribution function is not the tail.** ``1.0 -
+maximum_cdf(...)`` is the right number only while it is representable: at five
+times the spot on a 10% volatility the true tail is below 1e-16 and the
+subtraction returns zero or round-off. Nothing here needs it — the tail is
+integrated analytically rather than sampled — but a caller reaching for a deep
+exceedance probability should know that :func:`maximum_cdf` is accurate in
+absolute terms and its complement is not.
 
 **Discrete monitoring is worth a great deal here, and in the opposite direction
 from a barrier.** A maximum taken at the close rather than continuously is
@@ -221,6 +244,20 @@ def _expm1_over(x: float) -> float:
     return 1.0 if x == 0.0 else math.expm1(x) / x
 
 
+def _is_flat(inputs: Inputs) -> bool:
+    """Whether the path is deterministic, which is not what ``is_degenerate`` means.
+
+    :attr:`moneyness.bsm.Inputs.is_degenerate` is true when the *terminal payoff*
+    carries no uncertainty, and a zero strike is one of the cases it covers: a
+    call struck at nothing is worth the forward whatever the path does. Here the
+    strike says nothing at all about the path, and a lookback with a zero strike
+    is an ordinary contract on a random extreme. Reusing that property priced a
+    zero-strike floating-strike call off a deterministic path and returned 4.98
+    where the right answer is 17.56.
+    """
+    return inputs.time == 0.0 or inputs.vol == 0.0
+
+
 def _degenerate_extremes(inputs: Inputs) -> tuple[float, float]:
     """The running minimum and maximum when the path is deterministic.
 
@@ -255,7 +292,7 @@ def maximum_cdf(inputs: Inputs, level: float) -> float:
         raise LookbackError(f"level must be positive, got {level}")
     if level <= inputs.spot:
         return 0.0
-    if inputs.is_degenerate:
+    if _is_flat(inputs):
         return 1.0 if _degenerate_extremes(inputs)[1] <= level else 0.0
     sigma = inputs.vol
     v = inputs.std_dev
@@ -284,7 +321,7 @@ def minimum_cdf(inputs: Inputs, level: float) -> float:
         raise LookbackError(f"level must be positive, got {level}")
     if level >= inputs.spot:
         return 1.0
-    if inputs.is_degenerate:
+    if _is_flat(inputs):
         return 1.0 if _degenerate_extremes(inputs)[0] <= level else 0.0
     sigma = inputs.vol
     v = inputs.std_dev
@@ -374,7 +411,7 @@ def maximum_excess(inputs: Inputs, level: float) -> float:
     _check(inputs)
     if level <= 0.0:
         raise LookbackError(f"level must be positive, got {level}")
-    if inputs.is_degenerate:
+    if _is_flat(inputs):
         return max(_degenerate_extremes(inputs)[1] - level, 0.0)
     if level < inputs.spot:
         # The maximum is at least the spot, so the first stretch is certain.
@@ -412,7 +449,7 @@ def minimum_shortfall(inputs: Inputs, level: float) -> float:
     _check(inputs)
     if level <= 0.0:
         raise LookbackError(f"level must be positive, got {level}")
-    if inputs.is_degenerate:
+    if _is_flat(inputs):
         return max(level - _degenerate_extremes(inputs)[0], 0.0)
     if level > inputs.spot:
         return (level - inputs.spot) + minimum_shortfall(inputs, inputs.spot)
@@ -433,7 +470,7 @@ def expected_maximum(inputs: Inputs) -> float:
     dominates its endpoint.
     """
     _check(inputs)
-    if inputs.is_degenerate:
+    if _is_flat(inputs):
         return _degenerate_extremes(inputs)[1]
     return inputs.spot + maximum_excess(inputs, inputs.spot)
 
@@ -444,7 +481,7 @@ def expected_minimum(inputs: Inputs) -> float:
     Always at or below the spot, and below the forward.
     """
     _check(inputs)
-    if inputs.is_degenerate:
+    if _is_flat(inputs):
         return _degenerate_extremes(inputs)[0]
     return inputs.spot - minimum_shortfall(inputs, inputs.spot)
 

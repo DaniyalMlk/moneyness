@@ -218,3 +218,109 @@ def ref_norm_cdf2(a: float, b: float, rho: float) -> float:
     points.extend(mpf(x) for x in (-6, -3, -1, 0, 1, 3, 6))
     inside = sorted({p for p in points if mpf(-45) < p < left})
     return float(quad(integrand, [mpf(-45), *inside, left]))
+
+
+def ref_running_tail(
+    spot: float, carry: float, vol: float, time: float, level: float, *, upper: bool
+) -> float:
+    """The running extreme's tail at fifty digits, from the reflection principle.
+
+    ``P(M_T > level)`` for ``upper``, and ``P(m_T < level)`` otherwise. Written
+    out here so that :func:`ref_extreme_expectation` can integrate it without
+    sharing any arithmetic with the implementation under test.
+    """
+    s, b, v, t, y = (mpf(x) for x in (spot, carry, vol, time, level))
+    sd = v * sqrt(t)
+    drift = (b - v**2 / 2) * t
+    u = log(y / s)
+    reflected = exp(2 * drift * u / sd**2)
+    if upper:
+        return float(
+            erfc(-((drift - u) / sd) / sqrt(2)) / 2
+            + reflected * erfc(-((-u - drift) / sd) / sqrt(2)) / 2
+        )
+    return float(
+        erfc(-((u - drift) / sd) / sqrt(2)) / 2
+        + reflected * erfc(-((u + drift) / sd) / sqrt(2)) / 2
+    )
+
+
+def ref_extreme_expectation(
+    spot: float, carry: float, vol: float, time: float, level: float, *, upper: bool
+) -> float:
+    """``E[(M_T - level)^+]`` or ``E[(level - m_T)^+]`` by integrating the tail.
+
+    The oracle integrates ``P(M_T > y)`` over ``y`` above the level, which is
+    the layer-cake identity and not the implementation's analytic integral, so
+    agreement is evidence about the integration rather than about the
+    transcription.
+
+    The substitution ``y = level e^{±w}`` is what makes this an oracle rather
+    than a second opinion. The maximum's tail decays like a lognormal's, which
+    on the original scale means an integrand that is still contributing at
+    twenty times the level for a long-dated, high-volatility contract: a first
+    version truncated at ``20 * level`` and disagreed with the implementation by
+    5.7e-6 at a three-year maturity and a 40% volatility, and the implementation
+    was right. On the log scale the whole half-line is reachable, and the
+    subdivisions below let the adaptive rule resolve the decay.
+    """
+    s, b, v, t = (mpf(x) for x in (spot, carry, vol, time))
+    a = mpf(level)
+
+    def integrand(w: Any) -> Any:
+        y = a * exp(w if upper else -w)
+        tail = ref_running_tail(
+            float(s), float(b), float(v), float(t), float(y), upper=upper
+        )
+        return mpf(tail) * y
+
+    return float(quad(integrand, [0, 1, 4, 12, 40]))
+
+
+def ref_extreme_expectation_closed(
+    spot: float, carry: float, vol: float, time: float, level: float, *, upper: bool
+) -> float:
+    """The same expectation by the analytic integral, carried at fifty digits.
+
+    This shares the derivation with the implementation, so it is not an oracle
+    for the mathematics — :func:`ref_extreme_expectation` is. What it checks is
+    the double-precision arrangement, which is the part that has two groupings
+    and a crossover between them, and it is cheap enough to run over a grid
+    where adaptive quadrature at fifty digits is not.
+    """
+    s, b, v, t, a = (mpf(x) for x in (spot, carry, vol, time, level))
+    sd = v * sqrt(t)
+    drift = (b - v**2 / 2) * t
+    log_level = log(a / s)
+    c = 2 * b / v**2
+
+    def normal(x: Any) -> Any:
+        return erfc(-x / sqrt(2)) / 2
+
+    if upper:
+        plain = -exp(log_level) * normal((drift - log_level) / sd) + exp(
+            b * t
+        ) * normal((drift + sd**2 - log_level) / sd)
+    else:
+        plain = exp(log_level) * normal((log_level - drift) / sd) - exp(
+            b * t
+        ) * normal((log_level - drift - sd**2) / sd)
+
+    if c == 0:
+        centre = sd / 2 - log_level / sd
+        if not upper:
+            centre = -centre
+        density = exp(-(centre**2) / 2) / sqrt(2 * pi)
+        weight = sd**2 / 2 - log_level if upper else log_level - sd**2 / 2
+        reflected = weight * normal(centre) + sd * density
+    elif upper:
+        reflected = (
+            exp(b * t) * normal((c * sd**2 - drift - log_level) / sd)
+            - exp(c * log_level) * normal((-log_level - drift) / sd)
+        ) / c
+    else:
+        reflected = (
+            exp(c * log_level) * normal((log_level + drift) / sd)
+            - exp(b * t) * normal((log_level + drift - c * sd**2) / sd)
+        ) / c
+    return float(s * (plain + reflected))
