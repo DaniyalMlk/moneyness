@@ -32,6 +32,14 @@ from .asian import (
 )
 from .barrier import barrier_price, is_structurally_worthless, monitoring_shift
 from .bsm import Inputs, OptionType, forward, parity_gap, price
+from .deferred import (
+    Compound,
+    chooser_legs,
+    chooser_price,
+    compound_parity_gap,
+    compound_price,
+    straddle_price,
+)
 from .greeks import (
     charm,
     colour,
@@ -779,6 +787,92 @@ def _run_barrier(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_deferred(args: argparse.Namespace) -> int:
+    """A decision taken at an intermediate date, and the identities that pin it.
+
+    The chooser leads with its decomposition rather than its price, because the
+    decomposition *is* the contract: put-call parity at the decision date turns
+    the choice into a call plus a scaled put on a shifted strike, and the
+    residual against the closed form is the only check on the formula that does
+    not come from the formula.
+
+    Then the four compound options together, with the parity residual for each
+    pair. A compound option is not a cheap option: it is a forward purchase of
+    the inner option plus the right to decline, and the table prints the forward
+    purchase so the two can be told apart.
+    """
+    inputs = _inputs_of(args)
+    decision = args.decision
+    if decision is None:
+        decision = 0.5 * inputs.time
+
+    chooser = chooser_price(inputs, decision)
+    legs = chooser_legs(inputs, decision)
+    straddle = straddle_price(inputs)
+    call = price(inputs, OptionType.CALL)
+    put = price(inputs, OptionType.PUT)
+
+    print(f"{'decision at':>24}  {decision:.6f} of {inputs.time:.6f} years")
+    print(f"{'chooser':>24}  {chooser:.10f}")
+    print(f"{'  call leg':>24}  {legs.call:.10f}")
+    leg = f"{legs.scale:.10f} x {legs.put:.10f}"
+    print(f"{'  put leg':>24}  {leg} struck {legs.shifted_strike:.6f}")
+    print(f"{'  decomposition':>24}  {legs.total:.10f}  residual {chooser - legs.total:+.3e}")
+    print(f"{'call':>24}  {call:.10f}")
+    print(f"{'put':>24}  {put:.10f}")
+    print(f"{'straddle':>24}  {straddle:.10f}")
+    print(
+        f"  the chooser sits between the better vanilla ({max(call, put):.6f}) and the "
+        f"straddle ({straddle:.6f}), reaching the first at a decision now and the "
+        f"second at a decision at maturity"
+    )
+
+    print()
+    print(f"  compound options on a premium of {args.premium:g} paid at the decision")
+    header = f"  {'contract':>18}  {'price':>13}  {'forward buy':>13}"
+    print(f"{header}  {'decline':>11}  {'P(exercise)':>11}")
+    for inner in (OptionType.CALL, OptionType.PUT):
+        for outer in (OptionType.CALL, OptionType.PUT):
+            compound = Compound(
+                outer=outer, inner=inner, premium=args.premium, decision=decision
+            )
+            result = compound_price(inputs, compound)
+            probability = (
+                "-"
+                if result.exercise_probability is None
+                else f"{result.exercise_probability:.6f}"
+            )
+            # The forward purchase is the outer call's alternative, so the
+            # difference from it is only the value of declining for that side.
+            # Printing it against the outer put would invite reading a negative
+            # number as a cost of something.
+            decline = (
+                f"{result.deferral_value:.6f}"
+                if outer is OptionType.CALL
+                else "-"
+            )
+            label = f"{outer.value}-on-{inner.value}"
+            print(
+                f"  {label:>18}  {result.value:>13.6f}  {result.forward_purchase:>13.6f}  "
+                f"{decline:>11}  {probability:>11}"
+            )
+        gap = compound_parity_gap(
+            inputs, Compound(OptionType.CALL, inner, args.premium, decision)
+        )
+        boundary = compound_price(
+            inputs, Compound(OptionType.CALL, inner, args.premium, decision)
+        ).critical_spot
+        shown = "-" if boundary is None else f"{boundary:.6f}"
+        print(
+            f"    on a {inner.value}: parity residual {gap:+.3e}, critical spot {shown}"
+        )
+    print(
+        "  the right to decline is the opposite outer option, exactly, which is "
+        "what the parity residual above is asserting"
+    )
+    return 0
+
+
 def _run_lookback(args: argparse.Namespace) -> int:
     """A lookback option, and why a monitoring table has to be simulated.
 
@@ -1498,6 +1592,40 @@ def _parser() -> argparse.ArgumentParser:
         help="monitoring frequencies to price by the continuity correction",
     )
     barrier_parser.set_defaults(handler=_run_barrier)
+
+    deferred_parser = sub.add_parser(
+        "deferred",
+        help="a chooser and the four compound options, with their identities",
+        description=(
+            "Two contracts whose payoff is not fixed when the trade is struck: a "
+            "chooser, where the holder declares the direction at an intermediate "
+            "date, and a compound option, where the holder decides then whether "
+            "to buy the option at all. Both are printed with the identity that "
+            "pins them -- the chooser against the vanilla pair that put-call "
+            "parity at the decision date decomposes it into, and each compound "
+            "pair against the statement that the outer call less the outer put "
+            "is the inner option less the discounted premium. Neither residual "
+            "comes from the formula being checked."
+        ),
+    )
+    _add_market(deferred_parser)
+    deferred_parser.add_argument(
+        "--vol", type=float, required=True, help="annualised lognormal volatility"
+    )
+    deferred_parser.add_argument(
+        "--decision",
+        type=float,
+        default=None,
+        metavar="YEARS",
+        help="when the decision is taken; the default is halfway to expiry",
+    )
+    deferred_parser.add_argument(
+        "--premium",
+        type=float,
+        default=5.0,
+        help="paid at the decision date to acquire the inner option",
+    )
+    deferred_parser.set_defaults(handler=_run_deferred)
 
     lookback_parser = sub.add_parser(
         "lookback",
