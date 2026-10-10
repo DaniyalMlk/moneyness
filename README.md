@@ -1132,6 +1132,90 @@ the *path* is deterministic, which is no time or no volatility and nothing else.
 A test asserting that the floating styles ignore the strike is what caught it,
 and that test exists because the docstring claims they do.
 
+## An eighteenth decision: let the decomposition be the implementation's judge
+
+Every payoff above is fixed when the trade is struck. Two are not: at a date
+before maturity the holder decides something, and what they hold afterwards
+depends on the decision. A **chooser** defers the direction. A **compound
+option** defers the purchase.
+
+```python
+from moneyness import Compound, Inputs, OptionType, chooser_legs, chooser_price, compound_price
+
+inputs = Inputs(100.0, 100.0, 1.0, 0.05, 0.25, carry=0.05)
+
+chooser_price(inputs, 0.5)            # 17.041176  -- declare call or put at six months
+chooser_legs(inputs, 0.5).total       # 17.041176  -- the same, from two vanilla prices
+
+bought = compound_price(inputs, Compound(OptionType.CALL, OptionType.CALL, 5.0, 0.5))
+bought.value                          #  8.381446
+bought.forward_purchase               #  7.459449  -- buying it forward instead
+bought.deferral_value                 #  0.921997  -- the right to decline
+bought.critical_spot                  # 93.720886  -- where the inner call is worth 5.00
+```
+
+### The chooser's decomposition is the contract, not a check bolted on
+
+At the decision date the holder has `max(C, P)`, which is `C + max(P - C, 0)`,
+and put-call parity makes `P - C` a known linear function of the spot. So the
+choice is worth a call struck at `K` to maturity **plus** `exp((b - r)(T - t))`
+puts struck at `K exp(-b (T - t))` expiring at the *decision* date — two
+`bsm.price` calls. Rubinstein's closed form is the same thing written as four
+normal integrals, and the two agree to **1.8e-14** at worst over strikes from 80
+to 120, carries from -0.03 to 0.08 and volatilities from 15% to 60%.
+
+Both are kept, because a closed form with an independent derivation to check it
+against is worth more than either alone. The decomposition also hands over the
+two limits: at a decision date equal to the maturity the chooser is a straddle,
+and at a decision date of zero it is the larger of the two vanillas — reached
+exactly, since the closed form's `y` divides by the square root of zero there
+and the branch has to be right rather than nearly right.
+
+### One parity validates both halves of a compound pair at once
+
+A call-on-call pays `max(C - K1, 0)` at the decision date and a put-on-call pays
+`max(K1 - C, 0)`, so their difference is `C - K1` pathwise and the discounted
+difference is the inner option less the discounted premium. Nothing from this
+module is on the right-hand side. The residual is at worst **7.1e-15** across
+four parameter sets per pair, and it constrains four bivariate arguments and two
+correlation signs for each pair at once — which is what makes the put-side
+formulas trustworthy, since an error in either member breaks it.
+
+An antithetic simulation agrees independently: only the spot at the decision
+date is drawn and the inner option is priced in closed form there, so the
+estimator has no discretisation error at all. Across five seeds for each of the
+four pairs the twenty deviations run from -1.52 to +0.93 standard errors and
+take both signs within every pair, which one seed inside its interval could not
+have shown.
+
+### The payoff algebra does not reduce to one option in every case
+
+With the decision date at the maturity the inner option is worth its intrinsic,
+and three of the four compounds become a single vanilla on a shifted strike. The
+fourth does not. Capping `max(K1 - (S - K)^+, 0)` truncates the payoff at both
+ends — flat at the premium below the inner strike, zero above `K + K1` — so it
+is a put struck at `K + K1` **less** a put struck at `K`. Writing it as the
+single shifted put overpays by the whole flat region: **9.881 against a correct
+2.422**, four times the price, with the overpayment concentrated exactly where
+the contract is most likely to pay.
+
+### A compound option is a forward purchase plus an option on the premium
+
+```console
+$ moneyness deferred --spot 100 --strike 100 --time 1 --rate 0.05 --vol 0.25 --premium 5
+...
+  compound options on a premium of 5 paid at the decision
+            contract          price    forward buy      decline  P(exercise)
+        call-on-call       8.381446       7.459449     0.921997     0.662712
+         put-on-call       0.921997       7.459449            -     0.337288
+    on a call: parity residual -2.665e-15, critical spot 93.720886
+```
+
+The right to decline, 0.921997, is the put-on-call to the last digit printed,
+which is what the parity residual beside it is asserting. It is also why a
+compound option is not a cheap way to buy an option: it costs more than buying
+the thing forward, by exactly the value of the choice.
+
 ## Running the tests
 
 ```bash

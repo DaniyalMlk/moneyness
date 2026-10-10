@@ -595,3 +595,17 @@ def test_everything_returned_is_a_finite_number() -> None:
     for choice in CHOOSERS:
         chooser, decision = chooser_inputs(choice)
         assert math.isfinite(chooser_price(chooser, decision))
+
+
+def test_the_figures_printed_in_the_readme() -> None:
+    """Pinned to the digits that are in print, so the document cannot drift."""
+    assert f"{chooser_price(BASE, 0.5):.6f}" == "17.041176"
+    assert f"{chooser_legs(BASE, 0.5).total:.6f}" == "17.041176"
+    bought = compound_price(BASE, Compound(OptionType.CALL, OptionType.CALL, 5.0, 0.5))
+    assert f"{bought.value:.6f}" == "8.381446"
+    assert f"{bought.forward_purchase:.6f}" == "7.459449"
+    assert f"{bought.deferral_value:.6f}" == "0.921997"
+    assert bought.critical_spot is not None
+    assert f"{bought.critical_spot:.6f}" == "93.720886"
+    assert bought.exercise_probability is not None
+    assert f"{bought.exercise_probability:.6f}" == "0.662712"

@@ -717,3 +717,79 @@ is no level in a lookback to shift; the correction is to the extreme, and the
 extreme is the payoff. So the discrete contract is simulated, and the gap is
 worth knowing: 17.8% at a monthly fix on a one-year contract, which is in the
 other direction from the barrier's +13.3% daily and of the same order.
+
+## Phase 18 — A decision taken before the payoff is known
+
+Every payoff priced so far is fixed when the trade is struck. Two families are
+not: at a date before maturity the holder decides something and what they hold
+afterwards depends on it. A chooser defers the direction; a compound option
+defers the purchase. Both need a critical spot at the decision date and the
+joint law of the spot at two dates, and both have identities that pin them with
+none of this module's own arithmetic in them.
+
+- [x] The simple chooser in closed form, with the vanilla pair put-call parity
+      decomposes it into exposed rather than hidden
+- [x] All four compound options, with the critical spot bisected and returned
+      so the exercise probability reads as a probability
+- [x] The degenerate cases that are trades rather than errors: a zero premium,
+      a premium no inner option can reach, a decision now, a decision at
+      maturity
+- [x] A command-line route that prints the residual of every identity beside
+      the price it checks
+- [ ] A first release on the package index
+
+### The decomposition is the contract, not a check bolted on afterwards
+
+At the decision date the holder has `max(C, P)`, which is `C + max(P - C, 0)`,
+and put-call parity makes `P - C` a known linear function of the spot. So the
+choice is a call struck at `K` to maturity plus `exp((b - r)(T - t))` puts
+struck at `K exp(-b (T - t))` expiring at the *decision* date. Rubinstein's
+closed form is that written as four normal integrals, and the two agree to
+1.8e-14 at worst over six parameter sets spanning strikes from 80 to 120,
+carries from -0.03 to 0.08 and volatilities from 15% to 60%. Both are kept,
+because a closed form with an independent derivation to check it against is
+worth more than either alone.
+
+The decomposition also supplies the two limits for free. With the decision at
+maturity the put leg expires with the option and the chooser is a straddle. With
+the decision now the holder chooses knowing both prices and the chooser is the
+larger of the two vanillas — reached exactly, because the closed form's `y`
+divides by the square root of zero and the branch has to be right rather than
+nearly right.
+
+### One parity validates both halves of a compound pair at once
+
+At the decision date a call-on-call pays `max(C - K1, 0)` and a put-on-call pays
+`max(K1 - C, 0)`, so their difference is `C - K1` pathwise and the discounted
+difference is the inner option less the discounted premium. Nothing from this
+module appears on the right. The residual is at worst 7.1e-15 across four
+parameter sets per pair, and it constrains four bivariate arguments and two
+correlation signs for each pair simultaneously — which is what makes the
+put-side formulas trustworthy, since an error in either member breaks it.
+
+An antithetic simulation agrees independently: only the spot at the decision
+date is drawn and the inner option is priced in closed form there, so the
+estimator has no discretisation error at all. Over five seeds for each of the
+four pairs the twenty deviations run from -1.52 to +0.93 standard errors and
+take both signs within every pair.
+
+### The payoff algebra does not reduce to one option in every case
+
+With the decision date at the maturity the inner option is worth its intrinsic,
+and three of the four compounds become a single vanilla on a shifted strike. The
+fourth does not. Capping `max(K1 - (S - K)^+, 0)` truncates the payoff at both
+ends — flat at the premium below the inner strike, zero above `K + K1` — so it
+is a put struck at `K + K1` less a put struck at `K`. Writing it as the single
+shifted put overpays by the whole flat region: 9.881 against a correct 2.422,
+four times the price, with the overpayment concentrated where the contract is
+most likely to pay.
+
+### What the deferral is worth, stated as a trade
+
+A compound option is not a cheap option. At a 100 strike, one year, 25%
+volatility and a six-month decision, the inner call is worth 12.336 and the
+call-on-call on a 5.00 premium is worth 8.381, against 12.336 less
+5.00 exp(-0.025) = 7.459 for buying it forward. The right to decline is worth
+0.922, which parity makes exactly the put-on-call — so a compound option is a
+forward purchase plus an option on the premium, and that is the sentence the
+command line prints rather than a price on its own.
