@@ -129,6 +129,8 @@ jobs:
             --beta 0.5 --rho -0.3 --nu 0.4 --low 0.014 --high 0.028 --steps 5 --floor
           ./venv/bin/moneyness sabr --forward 0.02 --time 10 --alpha 0.004 \
             --beta 0.5 --rho -0.3 --nu 0.8 --low 0.01 --high 0.035 --steps 7 --floor
+          ./venv/bin/moneyness deferred --spot 100 --strike 100 --time 1 \
+            --rate 0.05 --vol 0.25 --decision 0.5 --premium 5
 
       # The sdist is built by a different code path from the wheel, and a file
       # left out of one can be present in the other: py.typed and LICENSE both
@@ -145,6 +147,8 @@ jobs:
             --beta 0.5 --rho -0.3 --nu 0.4 --low 0.014 --high 0.028 --steps 5 --floor
           ./venv/bin/moneyness sabr --forward 0.02 --time 10 --alpha 0.004 \
             --beta 0.5 --rho -0.3 --nu 0.8 --low 0.01 --high 0.035 --steps 7 --floor
+          ./venv/bin/moneyness deferred --spot 100 --strike 100 --time 1 \
+            --rate 0.05 --vol 0.25 --decision 0.5 --premium 5
 
       # The metadata tests are the ones that only mean something against an
       # installed distribution: they read License-Expression, License-File and

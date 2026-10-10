@@ -1851,3 +1851,73 @@ def test_lookback_refuses_a_non_positive_monitoring(
 ) -> None:
     with pytest.raises(SystemExit, match="--monitorings must be positive"):
         main(_lookback_argv("--monitorings", "0"))
+
+
+def _deferred_argv(*extra: str) -> list[str]:
+    return [
+        "deferred",
+        "--spot",
+        "100",
+        "--strike",
+        "100",
+        "--time",
+        "1",
+        "--rate",
+        "0.05",
+        "--vol",
+        "0.25",
+        *extra,
+    ]
+
+
+def test_deferred_prints_the_decomposition_residual_and_not_only_the_price(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The residual is the command's reason to exist.
+
+    A chooser price on its own is unfalsifiable by a reader. The call leg, the
+    scaled put leg, their sum and the gap to the closed form are all printed, so
+    the arithmetic can be followed with a calculator.
+    """
+    assert main(_deferred_argv("--decision", "0.5", "--premium", "5")) == 0
+    out = capsys.readouterr().out
+    assert "call leg" in out
+    assert "put leg" in out
+    assert "decomposition" in out
+    line = next(one for one in out.splitlines() if "decomposition" in one)
+    assert abs(float(line.split()[-1])) < 1e-12
+    assert "straddle" in out
+
+
+def test_deferred_prints_a_parity_residual_for_each_compound_pair(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(_deferred_argv("--decision", "0.5", "--premium", "5")) == 0
+    out = capsys.readouterr().out
+    for label in ("call-on-call", "put-on-call", "call-on-put", "put-on-put"):
+        assert label in out
+    residuals = [
+        float(one.split("parity residual")[1].split(",")[0])
+        for one in out.splitlines()
+        if one.strip().startswith("on a ")
+    ]
+    assert len(residuals) == 2
+    assert all(abs(one) < 1e-12 for one in residuals)
+    # The decline column is blank for the outer put, where a forward purchase
+    # is not the alternative and a difference from it would read as a cost.
+    put_row = next(one for one in out.splitlines() if "put-on-call" in one)
+    assert put_row.split()[-2] == "-"
+
+
+def test_deferred_defaults_the_decision_to_halfway(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(_deferred_argv()) == 0
+    out = capsys.readouterr().out
+    assert "decision at  0.500000 of 1.000000 years" in out
+
+
+def test_deferred_refuses_a_decision_after_expiry(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(_deferred_argv("--decision", "2.0")) != 0
