@@ -73,9 +73,10 @@ vertical spread rather than a vanilla**, which is the one case here where the
 payoff algebra does not reduce to one option. Capping ``max(K1 - (S - K)^+, 0)``
 truncates the payoff at both ends: it is flat at ``K1`` below the inner strike
 and zero above ``K + K1``, which is a put struck at ``K + K1`` less a put struck
-at ``K``. Writing it as the single put would overpay by the whole of the flat
-region, 7.459 against a correct 2.422 on the parameters above, and the error is
-largest exactly where the contract is most likely to pay.
+at ``K``. Writing it as the single put struck at ``K + K1`` would overpay by the
+whole of the flat region: **9.881 against a correct 2.422** on the parameters
+above, four times the price, and the overpayment is concentrated exactly where
+the contract is most likely to pay.
 
 **What the optionality is worth, measured.** A call-on-call is not a cheap way
 to buy an option: it is cheaper than the inner option by less than the premium
