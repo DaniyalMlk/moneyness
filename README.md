@@ -1216,6 +1216,85 @@ which is what the parity residual beside it is asserting. It is also why a
 compound option is not a cheap way to buy an option: it costs more than buying
 the thing forward, by exactly the value of the choice.
 
+## A nineteenth decision: let the correlation disagree with itself
+
+An option on a share quoted abroad has four common forms, and they are not
+variants of one price. Writing `X` for the exchange rate in domestic units per
+one foreign unit:
+
+| contract | payoff | correlation |
+| --- | --- | --- |
+| foreign struck | `X_T (S_T - K_f)+` | absent |
+| quanto | `X_fix (S_T - K_f)+` | lowers a call |
+| composite | `(S_T X_T - K_d)+` | raises a call |
+| equity-linked FX | `S_T (X_T - K_x)+` | raises a call |
+
+```bash
+moneyness quanto --spot 100 --exchange 1.25 --strike 105 --time 1 \
+  --domestic-rate 0.04 --foreign-rate 0.02 --dividend 0.01 \
+  --asset-vol 0.22 --exchange-vol 0.14 --rho 0.35
+```
+
+```
+          foreign strike  105.0000000000
+         domestic strike  133.9014258785
+             rate strike  1.2752516750
+            quanto drift  -0.0107800000
+           composite vol  0.2992657682
+
+          foreign struck    8.7775022095   d/drho    +0.000000
+                  quanto    8.0004023524   d/drho    -1.677126
+               composite   12.6889317588   d/drho    +5.071480
+        equity linked fx    7.5531410400   d/drho    +1.897304
+```
+
+One strike cannot serve four contracts, so the command converts the foreign
+strike at the forward rate — the conversion under which the three struck
+contracts become one contract when the exchange rate stops moving. The slopes
+are why they are printed together.
+
+### The correlation enters with a minus in one place and a plus in another
+
+`quanto_drift` is `-rho sigma_S sigma_X` and `composite_volatility` is
+`sqrt(sigma_S^2 + sigma_X^2 + 2 rho sigma_S sigma_X)`, so one estimate moves two
+of these prices in opposite directions. Over correlations from -0.8 to +0.8 the
+quanto loses 28.1% of its value, the composite gains 162.5% and the
+equity-linked option gains 56.1% — and the foreign-struck price does not change
+by a single bit, because converting a foreign payoff at whatever rate prevails
+is holding the foreign claim. That invariance is asserted rather than assumed;
+it is the one contract here where a correlation estimate cannot be wrong.
+
+### Which way up the rate is quoted decides the sign
+
+The other quotation negates the correlation and leaves its magnitude alone, so a
+figure taken from the wrong convention is exactly as plausible and exactly
+wrong. The quanto drift then moves by `2 rho sigma_S sigma_X` instead of
+vanishing: a quanto call reads 8.6% too high at a correlation of 0.2, 15.5% at
+0.35 and 41.9% at 0.85, with nothing in the price to say so.
+`CrossCurrency.inverted` changes quotation properly.
+
+### Neither quote identifies the pair; the two of them do
+
+A quanto price depends on `(sigma_X, rho)` only through the product
+`rho sigma_X`. Five pairs along that curve, `sigma_X` from 0.05 to 0.50, give
+quanto prices equal in every bit while their composite prices differ by 42%. A
+composite price depends only on `sigma_X^2 + 2 rho sigma_S sigma_X`; three pairs
+along that curve agree to 1e-13 while their quanto prices differ by 19%.
+
+Two different functions of the same pair, and together linear in
+`(rho sigma_X, sigma_X^2)`, so `implied_fx_pair` inverts them with no search.
+The closed form is also what makes the failure legible: inconsistent quotes
+produce a negative variance and are refused, where a two-dimensional search
+would have stopped at a plausible corner with a poor residual.
+
+### A degenerate case is the only check on the strike conventions
+
+At zero exchange rate volatility, with the foreign strike converted at the
+forward rate and the quanto's fixed rate set to that forward, all three struck
+contracts equal today's rate times the foreign-currency option to within six
+parts in 1e15. A simulation cannot catch a strike written in the wrong currency,
+because the simulation would be wrong the same way; this collapse can.
+
 ## Running the tests
 
 ```bash
