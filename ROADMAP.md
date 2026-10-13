@@ -793,3 +793,82 @@ call-on-call on a 5.00 premium is worth 8.381, against 12.336 less
 0.922, which parity makes exactly the put-on-call — so a compound option is a
 forward purchase plus an option on the premium, and that is the sentence the
 command line prints rather than a price on its own.
+
+## Phase 19 — Two assets, two currencies, and one correlation
+
+- [x] All four cross-currency contracts: foreign struck, quanto, composite and
+      an exchange rate option with a share as its notional
+- [x] The quanto as a drift correction rather than as its own formula
+- [x] The equity-linked contract as an exchange option, because its payoff is a
+      difference of two domestic tradeables
+- [x] Each price against a two-asset simulation under the domestic risk-neutral
+      measure, for calls and puts and for both signs of the correlation
+- [x] The foreign-struck price's invariance to the exchange rate's volatility and
+      correlation, asserted to the last bit
+- [x] The three struck contracts collapsed onto one number, which pins the three
+      strike conventions against each other
+- [x] The correlation's effect on each contract measured, not described
+- [x] The cost of the other quotation's correlation, measured
+- [x] `(sigma_X, rho)` recovered from two quotes in closed form, with
+      inconsistent pairs refused
+- [x] A `quanto` subcommand that prints the four together
+
+### One number, four behaviours
+
+The correlation between the share and the exchange rate is absent from the
+foreign-struck price, lowers a quanto call, and raises both a composite call and
+an equity-linked one. It enters the quanto drift with a minus and the product's
+variance with a plus, so a single estimate moves two of these prices in opposite
+directions. Across correlations from -0.8 to +0.8 on a one-year option, the
+quanto loses 28.1% of its value, the composite gains 162.5% and the
+equity-linked one gains 56.1%, while the foreign-struck price does not move by a
+single bit.
+
+The invariance is the one worth asserting rather than assuming. Converting a
+foreign-currency payoff at whatever rate prevails is holding the foreign claim,
+so the domestic value is today's rate times the foreign-currency price and
+neither the exchange rate's volatility nor the correlation can appear. It is the
+only contract here where a correlation estimate cannot be wrong.
+
+### The sign of the correlation depends on which way the rate is quoted
+
+Quoting the exchange rate the other way up negates the correlation and leaves
+its magnitude alone, so a figure taken from a screen in the other convention is
+exactly as plausible and exactly wrong. The quanto drift then moves by
+`2 rho sigma_S sigma_X` rather than vanishing, and a quanto call comes out 8.6%
+too high at a correlation of 0.2, 15.5% at 0.35 and 41.9% at 0.85. There is
+nothing in the price to say so. `CrossCurrency.inverted` performs the change of
+quotation properly, and applying it twice is the identity.
+
+### Three strike conventions, pinned by a degenerate case
+
+The three struck contracts strike in three places: twice in foreign currency and
+once in domestic. At zero exchange rate volatility, with the foreign strike
+converted at the forward rate and the quanto's fixed rate set to that forward,
+all three equal today's rate times the foreign-currency option to within six
+parts in 1e15. That is the check that would catch any one of them being written
+in the wrong currency, and no amount of agreement with a simulation would,
+because the simulation would be wrong in the same way.
+
+### Neither quote identifies the pair and both of them do
+
+A quanto price depends on the exchange rate volatility and the correlation only
+through the product `rho sigma_X`. Five pairs along that curve — `sigma_X` from
+0.05 to 0.50 with the correlation scaled to match — give quanto prices equal in
+every bit, while their composite prices differ by 42%. A composite price depends
+only on `sigma_X^2 + 2 rho sigma_S sigma_X`; three pairs along *that* curve give
+composite prices equal to 1e-13 while their quanto prices differ by 19%.
+
+So the two quotes are two different functions of the pair, and together they are
+linear in `(rho sigma_X, sigma_X^2)`. `implied_fx_pair` inverts them with no
+search at all. The closed form is also what makes the failure legible: an
+inconsistent pair of quotes produces a negative variance, which is reported as
+such, where a two-dimensional search would have returned a plausible-looking
+corner with a poor residual and left the caller to notice.
+
+One rounding detail had to be handled rather than argued away. A perfectly
+correlated pair inverts to a correlation of one and a few bits, because the
+answer is a ratio of two quantities each of which has been through a square
+root. Refusing that as out of range would be a worse failure than reporting
+`1 + 4e-16`, so the boundary is snapped within a billionth and anything beyond
+it is still refused.

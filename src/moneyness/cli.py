@@ -20,6 +20,7 @@ import csv
 import math
 import sys
 from collections.abc import Callable, Iterable, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from . import __version__
@@ -74,6 +75,18 @@ from .lookback import (
 from .monte_carlo import Barrier, Lookback, Settings
 from .monte_carlo import lookback as simulate_lookback
 from .pde import LocalVolError, Mesh, dupire_local_vol, price_pde
+from .quanto import (
+    CrossCurrency,
+    Linkage,
+    composite_volatility,
+    domestic_forward,
+    exchange_forward,
+    implied_fx_pair,
+    quanto_drift,
+    quanto_forward,
+)
+from .quanto import parity_gap as quanto_parity_gap
+from .quanto import price as quanto_price
 from .sabr import (
     SabrParameters,
     bachelier,
@@ -955,6 +968,91 @@ def _run_lookback(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_quanto(args: argparse.Namespace) -> int:
+    """All four cross-currency contracts on one market, side by side.
+
+    Printed together because the point is the comparison. The same correlation
+    is absent from the foreign-struck price, lowers the quanto, and raises both
+    the composite and the equity-linked one, so a single number read off a
+    screen moves two of these in opposite directions. The report therefore
+    prints each price and each price's sensitivity to the correlation rather
+    than one price on its own.
+
+    The last block is the identification. A quanto quote determines
+    ``rho sigma_X`` and a composite quote determines
+    ``sigma_X^2 + 2 rho sigma_S sigma_X``; neither determines the pair, and the
+    two together determine it in closed form. The command inverts the pair it
+    was given through both quantities and reports the round trip, which is zero
+    when the inversion is right and is the only check available without a
+    second market.
+    """
+    market = CrossCurrency(
+        spot=args.spot,
+        exchange=args.exchange,
+        strike=args.strike,
+        time=args.time,
+        domestic_rate=args.domestic_rate,
+        foreign_rate=args.foreign_rate,
+        dividend=args.dividend,
+        asset_vol=args.asset_vol,
+        exchange_vol=args.exchange_vol,
+        correlation=args.rho,
+    )
+    option = OptionType.CALL if args.option == "call" else OptionType.PUT
+    fixed = args.fixed_exchange
+
+    # One strike cannot serve four contracts: two of them strike in foreign
+    # currency, one in domestic currency and one on the exchange rate itself.
+    # The defaults convert the foreign strike at the forward rate, which is the
+    # conversion that makes the three struck contracts the same contract when
+    # the exchange rate stops moving -- so the prices below are comparable
+    # rather than being three contracts at three unrelated moneynesses.
+    forward_rate = exchange_forward(market)
+    domestic_strike = (
+        args.strike * forward_rate if args.domestic_strike is None else args.domestic_strike
+    )
+    rate_strike = forward_rate if args.rate_strike is None else args.rate_strike
+    strikes = {
+        Linkage.FOREIGN_STRUCK: args.strike,
+        Linkage.QUANTO: args.strike,
+        Linkage.COMPOSITE: domestic_strike,
+        Linkage.EQUITY_LINKED_FX: rate_strike,
+    }
+
+    print(f"{'contract':>24}  {args.option}")
+    print(f"{'foreign strike':>24}  {args.strike:.10f}")
+    print(f"{'domestic strike':>24}  {domestic_strike:.10f}")
+    print(f"{'rate strike':>24}  {rate_strike:.10f}")
+    print(f"{'share forward':>24}  {quanto_forward(market):.10f}  (quanto drifted)")
+    print(f"{'exchange forward':>24}  {exchange_forward(market):.10f}")
+    print(f"{'domestic forward':>24}  {domestic_forward(market):.10f}  (of S X)")
+    print(f"{'quanto drift':>24}  {quanto_drift(market):+.10f}")
+    print(f"{'composite vol':>24}  {composite_volatility(market):.10f}")
+    print()
+    bump = 0.01
+    worst = 0.0
+    for linkage in Linkage:
+        at = replace(market, strike=strikes[linkage])
+        value = quanto_price(at, linkage, option, fixed_exchange=fixed)
+        shifted = replace(at, correlation=min(at.correlation + bump, 1.0))
+        moved = quanto_price(shifted, linkage, option, fixed_exchange=fixed)
+        step = shifted.correlation - at.correlation
+        slope = (moved - value) / step if step > 0.0 else 0.0
+        print(f"{linkage.value:>24}  {value:14.10f}   d/drho {slope:+12.6f}")
+        worst = max(worst, abs(quanto_parity_gap(at, linkage, fixed_exchange=fixed)))
+    print()
+    print(f"{'worst parity gap':>24}  {worst:.3e}")
+    pair = implied_fx_pair(market, quanto_drift(market), composite_volatility(market))
+    print(f"{'implied exchange vol':>24}  {pair.exchange_vol:.12f}")
+    print(f"{'implied correlation':>24}  {pair.correlation:.12f}")
+    print(
+        f"{'round trip':>24}  "
+        f"{abs(pair.exchange_vol - market.exchange_vol):.3e}, "
+        f"{abs(pair.correlation - market.correlation):.3e}"
+    )
+    return 0
+
+
 def _run_spread(args: argparse.Namespace) -> int:
     """An option on the difference of two assets, with its rigorous interval.
 
@@ -1745,6 +1843,66 @@ def _parser() -> argparse.ArgumentParser:
         help="also show how the bounds tighten as the fixings get dense",
     )
     asian_parser.set_defaults(handler=_run_asian)
+
+    quanto_parser = sub.add_parser(
+        "quanto",
+        help="the four cross-currency contracts on one foreign share",
+        description=(
+            "Prices all four ways of writing an option on a foreign share -- "
+            "struck abroad and converted at maturity, struck abroad and "
+            "converted at a fixed rate, struck in domestic currency on the "
+            "product, and an exchange rate option with the share as notional "
+            "-- side by side with each one's sensitivity to the correlation. "
+            "The same correlation is absent from the first, lowers the second "
+            "and raises the other two. The exchange rate is quoted as domestic "
+            "units per one foreign unit and the correlation is in that "
+            "quotation; the other convention negates it, and a sign error "
+            "there is worth 15% of a quanto call at a correlation of 0.35."
+        ),
+    )
+    quanto_parser.add_argument("--spot", type=float, required=True, help="in foreign currency")
+    quanto_parser.add_argument(
+        "--exchange", type=float, required=True, help="domestic units per foreign unit"
+    )
+    quanto_parser.add_argument(
+        "--strike", type=float, required=True, help="in foreign currency"
+    )
+    quanto_parser.add_argument(
+        "--domestic-strike",
+        dest="domestic_strike",
+        type=float,
+        default=None,
+        help="the composite contract's strike; defaults to the foreign one converted "
+        "at the forward rate",
+    )
+    quanto_parser.add_argument(
+        "--rate-strike",
+        dest="rate_strike",
+        type=float,
+        default=None,
+        help="the equity-linked contract's strike, an exchange rate; defaults to the "
+        "forward rate",
+    )
+    quanto_parser.add_argument("--time", type=float, required=True)
+    quanto_parser.add_argument("--domestic-rate", dest="domestic_rate", type=float, default=0.0)
+    quanto_parser.add_argument("--foreign-rate", dest="foreign_rate", type=float, default=0.0)
+    quanto_parser.add_argument(
+        "--dividend", type=float, default=0.0, help="the share's yield, in foreign currency"
+    )
+    quanto_parser.add_argument("--asset-vol", dest="asset_vol", type=float, required=True)
+    quanto_parser.add_argument("--exchange-vol", dest="exchange_vol", type=float, required=True)
+    quanto_parser.add_argument(
+        "--rho", type=float, required=True, help="correlation of log S and log X"
+    )
+    quanto_parser.add_argument(
+        "--fixed-exchange",
+        dest="fixed_exchange",
+        type=float,
+        default=None,
+        help="the quanto's contractual conversion rate; defaults to today's",
+    )
+    quanto_parser.add_argument("--option", choices=("call", "put"), default="call")
+    quanto_parser.set_defaults(handler=_run_quanto)
 
     spread_parser = sub.add_parser(
         "spread",

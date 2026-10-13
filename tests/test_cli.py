@@ -1921,3 +1921,72 @@ def test_deferred_refuses_a_decision_after_expiry(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert main(_deferred_argv("--decision", "2.0")) != 0
+
+
+def _quanto_argv(*extra: str) -> list[str]:
+    return [
+        "quanto",
+        "--spot",
+        "100",
+        "--exchange",
+        "1.25",
+        "--strike",
+        "105",
+        "--time",
+        "1",
+        "--domestic-rate",
+        "0.04",
+        "--foreign-rate",
+        "0.02",
+        "--dividend",
+        "0.01",
+        "--asset-vol",
+        "0.22",
+        "--exchange-vol",
+        "0.14",
+        "--rho",
+        "0.35",
+        *extra,
+    ]
+
+
+def test_quanto_prints_four_contracts_with_four_correlation_sensitivities(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The comparison is the command. One correlation leaves the foreign-struck
+    price alone, lowers the quanto and raises the other two, so the slopes are
+    what the report is for."""
+    assert main(_quanto_argv()) == 0
+    out = capsys.readouterr().out
+    slopes = {}
+    for line in out.splitlines():
+        found = re.match(r"\s*(\S.*?)\s+(\S+)\s+d/drho\s+(\S+)\s*$", line)
+        if found:
+            slopes[found.group(1)] = (float(found.group(2)), float(found.group(3)))
+    assert set(slopes) == {"foreign struck", "quanto", "composite", "equity linked fx"}
+    assert slopes["foreign struck"][1] == 0.0
+    assert slopes["quanto"][1] < 0.0
+    assert slopes["composite"][1] > 0.0
+    assert slopes["equity linked fx"][1] > 0.0
+    assert all(value > 0.0 for value, _ in slopes.values())
+    # The strikes are converted so the three struck contracts are comparable,
+    # and the conversion is printed rather than assumed.
+    assert "domestic strike" in out
+    assert "rate strike" in out
+    assert re.search(r"worst parity gap\s+\d\.\d+e-1[0-9]", out)
+    assert re.search(r"implied exchange vol\s+0\.140000000000", out)
+    assert re.search(r"implied correlation\s+0\.350000000000", out)
+
+
+def test_quanto_takes_a_contractual_conversion_rate(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert main(_quanto_argv("--fixed-exchange", "1.4", "--option", "put")) == 0
+    out = capsys.readouterr().out
+    assert " put\n" in out
+    assert "quanto" in out
+
+
+def test_quanto_refuses_an_impossible_market(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["quanto", *_quanto_argv()[1:-1], "1.5"]) == 1
+    assert "correlation must lie in" in capsys.readouterr().err
