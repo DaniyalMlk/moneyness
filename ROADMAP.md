@@ -872,3 +872,22 @@ answer is a ratio of two quantities each of which has been through a square
 root. Refusing that as out of range would be a worse failure than reporting
 `1 + 4e-16`, so the boundary is snapped within a billionth and anything beyond
 it is still refused.
+
+## Phase 20 — The command line explains itself
+
+- [x] Help text on every option, so the same flag is not documented on one
+      subcommand and bare on the next — the shared market helper described
+      spot, time, volatility, rate and carry, and the commands that declared
+      them individually described nothing
+- [x] One wording per setting, taken from that helper, so the market arguments
+      read the same way wherever they appear
+- [x] The settings that are not shared described on their own terms: which
+      currency each quanto rate belongs to, which leg of a spread a volatility
+      is, and that the barrier type is ignored unless the payoff is one
+- [x] A parametrised sweep that renders `--help` for the root parser and every
+      subcommand, since a help string is expanded only when it is displayed
+- [x] Commands enumerated by walking the parser, recursively, rather than
+      listed by hand
+- [x] A completeness check that every argument carries help at all
+- [x] The sweep verified against the regression it exists for
+- [x] The same sweep in CI against the built wheel

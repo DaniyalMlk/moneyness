@@ -124,6 +124,25 @@ jobs:
           python -m venv venv
           ./venv/bin/pip install "$GITHUB_WORKSPACE"/dist/*.whl
           ./venv/bin/moneyness --version
+          # Every command's --help, against the artefact that would be
+          # published. argparse expands help strings through %-formatting at
+          # display time, so a malformed one raises there and nowhere else:
+          # the suite exercises the commands and the commands work. Only
+          # --help is broken, and it is the first thing anybody types.
+          ./venv/bin/moneyness --help > /dev/null
+          for sub in $(./venv/bin/python - <<'PY'
+          import argparse
+          from moneyness.cli import _parser
+          for action in _parser()._actions:
+              if isinstance(action, argparse._SubParsersAction):
+                  print(" ".join(sorted(action.choices)))
+                  break
+          PY
+          ); do
+            ./venv/bin/moneyness "$sub" --help > /dev/null || {
+              echo "moneyness $sub --help failed"; exit 1; }
+          done
+          echo "every command printed help"
           ./venv/bin/moneyness price --spot 100 --strike 100 --time 1 --rate 0.05 --vol 0.2
           ./venv/bin/moneyness sabr --forward 0.02 --time 1 --alpha 0.004 \
             --beta 0.5 --rho -0.3 --nu 0.4 --low 0.014 --high 0.028 --steps 5 --floor
