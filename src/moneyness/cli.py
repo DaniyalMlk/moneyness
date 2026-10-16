@@ -1486,26 +1486,44 @@ def _parser() -> argparse.ArgumentParser:
     iv_parser.set_defaults(handler=_run_iv)
 
     ladder_parser = sub.add_parser("ladder", help="a table of strikes at one maturity")
-    ladder_parser.add_argument("--spot", type=float, required=True)
-    ladder_parser.add_argument("--time", type=float, required=True)
-    ladder_parser.add_argument("--vol", type=float, required=True)
-    ladder_parser.add_argument("--rate", type=float, default=0.0)
-    ladder_parser.add_argument("--carry", type=float, default=None)
-    ladder_parser.add_argument("--dividend", type=float, default=None)
-    ladder_parser.add_argument("--future", action="store_true")
+    ladder_parser.add_argument("--spot", type=float, required=True, help="price of the underlying")
+    ladder_parser.add_argument("--time", type=float, required=True, help="year fraction to expiry")
+    ladder_parser.add_argument("--vol", type=float, required=True, help="annualised volatility")
+    ladder_parser.add_argument("--rate", type=float, default=0.0, help="continuous discount rate")
+    ladder_parser.add_argument("--carry", type=float, default=None, help="cost of carry directly")
+    ladder_parser.add_argument(
+        "--dividend",
+        type=float,
+        default=None,
+        help="continuous dividend yield",
+    )
+    ladder_parser.add_argument(
+        "--future",
+        action="store_true",
+        help="option on a future, so the carry is zero",
+    )
     ladder_parser.add_argument("--low", type=float, required=True, help="lowest strike")
     ladder_parser.add_argument("--high", type=float, required=True, help="highest strike")
     ladder_parser.add_argument("--steps", type=int, default=9, help="number of strikes")
     ladder_parser.set_defaults(handler=_run_ladder)
 
     term_parser = sub.add_parser("term", help="a table of maturities at one strike")
-    term_parser.add_argument("--spot", type=float, required=True)
-    term_parser.add_argument("--strike", type=float, required=True)
-    term_parser.add_argument("--vol", type=float, required=True)
-    term_parser.add_argument("--rate", type=float, default=0.0)
-    term_parser.add_argument("--carry", type=float, default=None)
-    term_parser.add_argument("--dividend", type=float, default=None)
-    term_parser.add_argument("--future", action="store_true")
+    term_parser.add_argument("--spot", type=float, required=True, help="price of the underlying")
+    term_parser.add_argument("--strike", type=float, required=True, help="exercise price")
+    term_parser.add_argument("--vol", type=float, required=True, help="annualised volatility")
+    term_parser.add_argument("--rate", type=float, default=0.0, help="continuous discount rate")
+    term_parser.add_argument("--carry", type=float, default=None, help="cost of carry directly")
+    term_parser.add_argument(
+        "--dividend",
+        type=float,
+        default=None,
+        help="continuous dividend yield",
+    )
+    term_parser.add_argument(
+        "--future",
+        action="store_true",
+        help="option on a future, so the carry is zero",
+    )
     term_parser.add_argument("--near", type=float, required=True, help="shortest maturity")
     term_parser.add_argument("--far", type=float, required=True, help="longest maturity")
     term_parser.add_argument(
@@ -1527,7 +1545,7 @@ def _parser() -> argparse.ArgumentParser:
         "--quotes", required=True, help="CSV of maturity,strike,vol, or - for standard input"
     )
     surface_parser.add_argument("--spot", type=float, required=True, help="price of the underlying")
-    surface_parser.add_argument("--rate", type=float, default=0.0)
+    surface_parser.add_argument("--rate", type=float, default=0.0, help="continuous discount rate")
     surface_parser.add_argument(
         "--carry", type=float, default=None, help="cost of carry; defaults to the rate"
     )
@@ -1581,12 +1599,21 @@ def _parser() -> argparse.ArgumentParser:
             "parameters generate can be read directly."
         ),
     )
-    heston_parser.add_argument("--spot", type=float, required=True)
-    heston_parser.add_argument("--time", type=float, required=True)
-    heston_parser.add_argument("--rate", type=float, default=0.0)
-    heston_parser.add_argument("--carry", type=float, default=None)
-    heston_parser.add_argument("--dividend", type=float, default=None)
-    heston_parser.add_argument("--future", action="store_true")
+    heston_parser.add_argument("--spot", type=float, required=True, help="price of the underlying")
+    heston_parser.add_argument("--time", type=float, required=True, help="year fraction to expiry")
+    heston_parser.add_argument("--rate", type=float, default=0.0, help="continuous discount rate")
+    heston_parser.add_argument("--carry", type=float, default=None, help="cost of carry directly")
+    heston_parser.add_argument(
+        "--dividend",
+        type=float,
+        default=None,
+        help="continuous dividend yield",
+    )
+    heston_parser.add_argument(
+        "--future",
+        action="store_true",
+        help="option on a future, so the carry is zero",
+    )
     heston_parser.add_argument("--v0", type=float, required=True, help="variance now")
     heston_parser.add_argument("--kappa", type=float, required=True, help="reversion speed")
     heston_parser.add_argument("--theta", type=float, required=True, help="long-run variance")
@@ -1618,8 +1645,13 @@ def _parser() -> argparse.ArgumentParser:
             "of the forward at ten years."
         ),
     )
-    sabr_parser.add_argument("--forward", type=float, required=True)
-    sabr_parser.add_argument("--time", type=float, required=True)
+    sabr_parser.add_argument(
+        "--forward",
+        type=float,
+        required=True,
+        help="forward price of the underlying",
+    )
+    sabr_parser.add_argument("--time", type=float, required=True, help="year fraction to expiry")
     sabr_parser.add_argument("--alpha", type=float, required=True, help="volatility now")
     sabr_parser.add_argument("--beta", type=float, default=0.5, help="backbone exponent, in [0, 1]")
     sabr_parser.add_argument(
@@ -1789,16 +1821,23 @@ def _parser() -> argparse.ArgumentParser:
     path_parser.add_argument("--sigma", type=float, required=True, help="volatility of variance")
     path_parser.add_argument("--rho", type=float, required=True, help="price/variance correlation")
     path_parser.add_argument(
-        "--payoff", choices=["european", "asian", "barrier"], default="european"
+        "--payoff",
+        choices=["european", "asian", "barrier"],
+        default="european",
+        help="which payoff to price from the paths. The European case has an "
+        "exact transform price to check the simulation against; the other two "
+        "are path functionals and do not.",
     )
     path_parser.add_argument("--steps", type=int, default=32, help="time steps per path")
     path_parser.add_argument("--paths", type=int, default=20000, help="paths simulated")
-    path_parser.add_argument("--seed", type=int, default=0)
+    path_parser.add_argument("--seed", type=int, default=0, help="seed for the paths")
     path_parser.add_argument("--level", type=float, default=None, help="the barrier")
     path_parser.add_argument(
         "--barrier",
         choices=[item.value for item in Barrier],
         default=Barrier.DOWN_AND_OUT.value,
+        help="which barrier, with --payoff barrier and --level. Ignored by the "
+        "other payoffs.",
     )
     path_parser.add_argument(
         "--no-bridge",
@@ -1883,14 +1922,38 @@ def _parser() -> argparse.ArgumentParser:
         help="the equity-linked contract's strike, an exchange rate; defaults to the "
         "forward rate",
     )
-    quanto_parser.add_argument("--time", type=float, required=True)
-    quanto_parser.add_argument("--domestic-rate", dest="domestic_rate", type=float, default=0.0)
-    quanto_parser.add_argument("--foreign-rate", dest="foreign_rate", type=float, default=0.0)
+    quanto_parser.add_argument("--time", type=float, required=True, help="year fraction to expiry")
+    quanto_parser.add_argument(
+        "--domestic-rate",
+        dest="domestic_rate",
+        type=float,
+        default=0.0,
+        help="continuous rate in the currency the payoff settles in",
+    )
+    quanto_parser.add_argument(
+        "--foreign-rate",
+        dest="foreign_rate",
+        type=float,
+        default=0.0,
+        help="continuous rate in the currency the share trades in",
+    )
     quanto_parser.add_argument(
         "--dividend", type=float, default=0.0, help="the share's yield, in foreign currency"
     )
-    quanto_parser.add_argument("--asset-vol", dest="asset_vol", type=float, required=True)
-    quanto_parser.add_argument("--exchange-vol", dest="exchange_vol", type=float, required=True)
+    quanto_parser.add_argument(
+        "--asset-vol",
+        dest="asset_vol",
+        type=float,
+        required=True,
+        help="annualised volatility of the share in its own currency",
+    )
+    quanto_parser.add_argument(
+        "--exchange-vol",
+        dest="exchange_vol",
+        type=float,
+        required=True,
+        help="annualised volatility of the exchange rate",
+    )
     quanto_parser.add_argument(
         "--rho", type=float, required=True, help="correlation of log S and log X"
     )
@@ -1901,7 +1964,9 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="the quanto's contractual conversion rate; defaults to today's",
     )
-    quanto_parser.add_argument("--option", choices=("call", "put"), default="call")
+    quanto_parser.add_argument(
+        "--option", choices=("call", "put"), default="call", help="which way round the payoff is"
+    )
     quanto_parser.set_defaults(handler=_run_quanto)
 
     spread_parser = sub.add_parser(
@@ -1917,13 +1982,27 @@ def _parser() -> argparse.ArgumentParser:
             "leaves it."
         ),
     )
-    spread_parser.add_argument("--forward1", type=float, required=True)
-    spread_parser.add_argument("--forward2", type=float, required=True)
-    spread_parser.add_argument("--strike", type=float, default=0.0)
-    spread_parser.add_argument("--time", type=float, required=True)
-    spread_parser.add_argument("--rate", type=float, default=0.0)
-    spread_parser.add_argument("--vol1", type=float, required=True)
-    spread_parser.add_argument("--vol2", type=float, required=True)
+    spread_parser.add_argument(
+        "--forward1", type=float, required=True, help="forward price of the long leg"
+    )
+    spread_parser.add_argument(
+        "--forward2", type=float, required=True, help="forward price of the short leg"
+    )
+    spread_parser.add_argument(
+        "--strike",
+        type=float,
+        default=0.0,
+        help="strike on the spread of the two. Zero by default, which is the "
+        "exchange option.",
+    )
+    spread_parser.add_argument("--time", type=float, required=True, help="year fraction to expiry")
+    spread_parser.add_argument("--rate", type=float, default=0.0, help="continuous discount rate")
+    spread_parser.add_argument(
+        "--vol1", type=float, required=True, help="annualised volatility of the long leg"
+    )
+    spread_parser.add_argument(
+        "--vol2", type=float, required=True, help="annualised volatility of the short leg"
+    )
     spread_parser.add_argument(
         "--rho", type=float, required=True, help="correlation of the two log returns"
     )
@@ -1943,9 +2022,19 @@ def _parser() -> argparse.ArgumentParser:
             "the error against them."
         ),
     )
-    variance_parser.add_argument("--forward", type=float, required=True)
-    variance_parser.add_argument("--time", type=float, required=True)
-    variance_parser.add_argument("--rate", type=float, default=0.0)
+    variance_parser.add_argument(
+        "--forward",
+        type=float,
+        required=True,
+        help="forward price of the underlying",
+    )
+    variance_parser.add_argument(
+        "--time",
+        type=float,
+        required=True,
+        help="year fraction to expiry",
+    )
+    variance_parser.add_argument("--rate", type=float, default=0.0, help="continuous discount rate")
     source = variance_parser.add_argument_group("source of prices (exactly one)")
     source.add_argument("--vol", type=float, default=None, help="a flat lognormal volatility")
     source.add_argument("--heston", action="store_true", help="a Heston smile")
