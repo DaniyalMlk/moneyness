@@ -84,7 +84,7 @@ pip install -e ".[dev]"      # the reference needs mpmath
 python examples/worked.py    # all seven, non-zero if a figure moves
 ```
 
-Behind them: 6035 tests on Python 3.10 through 3.13.
+Behind them: 6060 tests on Python 3.10 through 3.13.
 
 ## Installing
 

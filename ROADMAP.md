@@ -891,3 +891,28 @@ it is still refused.
 - [x] A completeness check that every argument carries help at all
 - [x] The sweep verified against the regression it exists for
 - [x] The same sweep in CI against the built wheel
+
+## Phase 21 — The evidence goes above the install line
+
+- [x] One script recomputing every figure the front page quotes, against the
+      fifty-digit reference that shares no code, rearrangement or branch
+      structure with the implementation
+- [x] A grid chosen for the wings and the limits rather than the textbook
+      middle: a spot at two fifths of the strike and nearly four times it,
+      three days and ten years, a negative carry, 5% to 80% volatility
+- [x] The Greeks against numerical derivatives of that price, since a second
+      closed form is another chance to make the same algebra mistake twice
+- [x] Put-call parity as the one check independent of the reference, because a
+      call and a put wrong the same way pass the comparison and fail the identity
+- [x] The price reported twice — relatively above 1e-8 of spot, absolutely
+      everywhere — since one figure would be a lie in one direction or the other
+- [x] The implied volatility graded by vega rather than reported as one error:
+      206 of 648 quotes on this grid are not questions a solver can answer, and
+      a single figure would describe the worst question
+- [x] The width of the repricing set published for one of those quotes, since
+      a monotone function is not a steep one and a solver always returns a number
+- [x] Both directions of the pin confirmed to fail before being relied on
+- [x] A third direction added after a careless edit loosened an enforced bound
+      while the rendered text went on claiming the old one, with nothing
+      catching it: the rendered claim is now read against the bound the check
+      enforces, not against a second transcription of it
