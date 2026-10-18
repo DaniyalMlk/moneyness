@@ -10,6 +10,82 @@ volatility, deep wings, quotes sitting exactly on the arbitrage bound — becaus
 those are the inputs that break naive implementations, and they arrive in real
 data more often than the textbook middle does.
 
+## What is checked, and against what
+
+`tests/reference.py` evaluates the same mathematics at fifty decimal digits in
+`mpmath`. It shares no code, no rearrangement and no branch structure with the
+library: where the implementation has a tail-safe grouping and a limit case,
+the reference has the textbook expression and enough precision that the
+difference does not matter. Agreement between them across a grid is therefore
+evidence about the implementation rather than about whoever typed the expected
+values.
+
+The grid reaches the places a naive implementation breaks rather than the
+textbook middle — a spot at two fifths of the strike and at nearly four times
+it, three days and ten years, a negative carry, volatilities from 5% to 80%.
+Every figure below is produced by `examples/worked.py`, which runs in CI and
+exits non-zero if any of them moves:
+
+| Check | Result |
+| --- | --- |
+| The price against the same formula at fifty digits in mpmath, 648 points | worst relative error 1e-12, where the price is above 1e-8 of spot |
+| The same, absolutely, including the quotes worth almost nothing | worst absolute error 1e-13, on spots of 50 to 150 |
+| The normal distribution function against mpmath's erfc, 1143 points | worst absolute error 1e-15, from z = -40 to z = +40 |
+| Delta, gamma, vega, theta and rho against derivatives of that price | worst relative error 1e-11, against a numerical derivative |
+| Put-call parity across the same grid | worst relative error 1e-13 |
+| Volatility recovered from the price it implies, where vega exceeds 1 | worst error 1e-13 over 342 quotes |
+| The width of the set that reprices a quote worth 1.4e-18 | every volatility from 0.001 to 0.899 reprices it |
+
+Four of those rows are shaped by what the measurement will actually support,
+and the shape is the interesting part.
+
+**The Greeks are checked against a differentiated reference, not a second
+closed form.** A second closed form is another chance to make the same algebra
+mistake twice. A numerical derivative of the fifty-digit price shares nothing
+with the analytic Greek except the price itself, so an error in the Greek
+cannot hide behind an error in its derivation.
+
+**The price gets two rows because one figure would be a lie in one direction or
+the other.** Relative error is the right measure for a price somebody would
+trade on and a meaningless one for a price of 1e-18, where both
+implementations are reporting the last bits of a number that is zero for every
+practical purpose and the ratio of two such disagreements can be anything at
+all. So the relative bound covers the prices above 1e-8 of spot and the
+absolute bound covers every point on the grid, including the ones below it.
+
+**Parity earns its place by being independent of everything above it.** It is
+algebra on the two payoffs and does not know what a distribution function is,
+so a library whose call and put are both wrong in the same way passes the
+reference comparison and fails this.
+
+**And the implied volatility is a ladder rather than a figure**, because a
+single round-trip error over this grid would describe the worst *question*
+rather than the solver. Vega is how much the price moves per unit of
+volatility, and the recovery error tracks it almost exactly:
+
+| vega above | quotes | worst error |
+| --- | --- | --- |
+| 1 | 342 | 1.1e-14 |
+| 0.01 | 386 | 1.8e-12 |
+| 0.0001 | 408 | 1.2e-10 |
+| 1e-08 | 442 | 7.0e-07 |
+
+206 of the 648 quotes on the grid have a vega of 1e-08 or less and are not
+questions a solver can answer at all. The worst of them is out by 0.8 in
+volatility, which is not a defect: the quote is worth 1.413e-18 on a spot of
+50, and *every* volatility from 0.001 to 0.899 reprices it to within 5e-15.
+Eleven standard deviations out of the money an option is worth its intrinsic
+value to the same double whatever the volatility, so a monotone function is not
+a steep one and a solver always returns a number. Reporting the width of that
+set is the honest form of the answer, and it is the only form a test can check.
+
+```bash
+pip install -e ".[dev]"      # the reference needs mpmath
+python examples/worked.py    # all seven, non-zero if a figure moves
+```
+
+Behind them: 6060 tests on Python 3.10 through 3.13.
+
 ## Installing
 
 ```bash
