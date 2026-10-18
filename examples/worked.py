@@ -380,6 +380,7 @@ def main() -> dict[str, object]:
 
     return {
         "checks": {check.label: check.measured for check in checks},
+        "bounds": {check.label: check.bound for check in checks},
         "rendered": {check.label: check.rendered for check in checks},
         "ladder": [tuple(rung) for rung in ladder],
         "mute": mute,
