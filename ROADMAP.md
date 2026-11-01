@@ -916,3 +916,45 @@ it is still refused.
       while the rendered text went on claiming the old one, with nothing
       catching it: the rendered claim is now read against the bound the check
       enforces, not against a second transcription of it
+
+## Phase 22 — Options nobody had chosen
+
+A documented parameter with a default is a claim: that the caller may choose,
+and that choosing works. Three parameters here had never been supplied by any
+call site, so each only ever ran with the value its author picked. Two of them
+were not keeping their promise.
+
+- [x] `spread_price(panels_per_unit=)` refused when it is not positive and
+      finite, the way the tolerance beside it already was — unguarded, a density
+      of zero fell through to the eight-panel floor and returned a price
+- [x] Why that went unnoticed written down: on a smooth pair eight panels of an
+      order-24 rule already integrate to machine precision, so the parameter
+      looks inert. Where the conditional option is nearly intrinsic it is not,
+      and the floor sits 1.2e-06 relative away from a dense run
+- [x] The convergence measured and pinned strictly falling — 2.2e-07 at one
+      panel per unit to 1.1e-15 at eight — over the range where the floor and
+      double precision both leave room, since a non-strict comparison over a
+      wider range passes against a density capped part way
+- [x] `calibrate(restarts=)` refusing a count below one instead of silently
+      searching from a single vertex, and the cap of four stated in the
+      docstring
+- [x] The cap measured before being documented rather than lifted: over twelve
+      noisy smiles with vertices across `m` in plus or minus two and `s` over
+      two decades, twelve further starting vertices matched the best of these
+      four to five significant figures every time
+- [x] The count pinned three ways — never fits worse, the same past four, not
+      the same at one — because any two of those three pass against a parameter
+      that is ignored
+- [x] `adaptive_quad(budget=)` exercised as what it is for: two integrals
+      spending from one count, and the refusal when the count runs out
+- [x] The probe made a gate, with no exemption mechanism, counting positional
+      arguments as choices — four options here, the Heston branch among them,
+      are only ever supplied that way
+- [x] Thirteen ways of breaking it confirmed to fail first, the gate among them
+
+What the sweep turned up on the way. `critical_states` had a test for finding
+the roots of the conditional moneyness and nothing that checked they are placed
+on panel edges, so removing the insertion left the suite green. At one panel per
+unit on a nearly-intrinsic pair that insertion is the difference between 2.2e-07
+and 5.7e-05 relative, and it is pinned now, with a smooth pair asserted
+insensitive so that the claim is about the kink rather than about panels.
