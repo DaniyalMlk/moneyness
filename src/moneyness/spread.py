@@ -491,15 +491,29 @@ def spread_price(
         call: False for ``max(S2 + K - S1, 0)``.
         tolerance: Absolute accuracy asked of the truncation.
         order: Gauss-Legendre order on each panel.
-        panels_per_unit: Panels per unit of ``z``. The panel count grows with
-            the ceiling, because a wider interval at a fixed panel count makes
-            the answer worse rather than better.
+        panels_per_unit: Panels per unit of ``z``, positive. The panel count
+            grows with the ceiling, because a wider interval at a fixed panel
+            count makes the answer worse rather than better, and is floored at
+            eight panels. The floor is why this parameter looks inert on an
+            ordinary pair: eight panels of an order-24 rule, with the roots of
+            :func:`critical_states` inserted as edges, already integrate a
+            smooth integrand to machine precision. It earns its keep where the
+            conditional option is nearly intrinsic.
 
     Raises:
         SpreadError: if no ceiling meets ``tolerance``.
+        ValueError: if ``tolerance`` or ``panels_per_unit`` is not positive.
     """
     if tolerance <= 0.0:
         raise ValueError(f"tolerance must be positive, got {tolerance}")
+    if not (panels_per_unit > 0.0) or math.isinf(panels_per_unit):
+        # Unguarded, a density of zero or below fell through to the eight-panel
+        # floor below and returned a price rather than an error. On ordinary
+        # pairs that price is right to machine precision, which is why it went
+        # unnoticed; where the conditional option is nearly intrinsic it is not,
+        # and the floor sits 1.2e-6 relative away from a dense run at a
+        # correlation of 0.999.
+        raise ValueError(f"panels_per_unit must be positive and finite, got {panels_per_unit}")
     sign = 1.0 if call else -1.0
     discount = pair.discount
     if pair.is_degenerate:
