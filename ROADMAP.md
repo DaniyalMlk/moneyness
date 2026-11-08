@@ -997,3 +997,33 @@ import from the root, where a workaround reads as a style choice.
 `ruff` was never going to find this. `F811` fires on a redefinition, and a
 redefinition needs both sides in one namespace; the root imports one side of
 each pair.
+
+## Phase 24 — Public in its module, absent from the root
+
+With the collisions tabled, what was left was nine names a module declares
+public that the package root did not carry, and one name the root carried that
+its own module did not declare. None of the nine collided with anything; the
+absences were inconsistency rather than decision.
+
+- [x] `implied.black` and `implied.black_vega` at the root — the undiscounted
+      Black price in total-volatility coordinates, which `tests/reference.py`
+      and three test modules already use, so a caller wanting Black-76 had to
+      know to look inside the module for it
+- [x] `heston_mc.paths` at the root
+- [x] `spread.FLOOR_EPSILONS`, `spread.half_space_value` and
+      `spread.vanilla_split` at the root
+- [x] `deferred.CRITICAL_ITERATIONS`, `CRITICAL_LOWER` and `CRITICAL_UPPER` at
+      the root. `BARRIER_DIGITS` and `CARRY_CROSSOVER` are the same kind of
+      module-level tuning constant and were already there, which is what made
+      these three an oversight rather than a different choice
+- [x] `heston` declaring `SmilePoint`, which it defines and which `heston.smile`
+      returns, so `from moneyness.heston import *` no longer hands back a
+      function without the type of its own return value
+- [x] The root asserted to be *exactly* the union of every public module's
+      `__all__` plus `__version__` — an equality, since a containment would have
+      passed throughout
+- [x] The two reasons a declared name may be absent held to the two existing
+      tables, module-only and collision loser, so neither can grow silently
+- [x] Nothing allowed to reach the root without being named in its `__all__`
+- [x] Four more ways of breaking it confirmed to fail first, both directions of
+      the equality among them

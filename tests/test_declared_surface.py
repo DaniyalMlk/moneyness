@@ -43,6 +43,12 @@ stale README count, an example reaching in for a name the root already has, a
 new collision, and a new module the root never imports. Eleven breaks, eleven
 caught by the rule aimed at them.
 
+The equality below was broken four more ways, in both directions: a name going
+public in its module with nobody adding it to the root, the root keeping a name
+its own module stopped declaring, a name dropped from the root while its module
+still declares it, and a name imported by the root and never declared. Four
+breaks, four caught.
+
 **The probe reads source, not the imported module.** Asking the package which
 attributes it has would be shorter and would miss things: a name bound to a bare
 ``int`` or ``float`` carries no ``__module__`` to attribute it with, and three of
