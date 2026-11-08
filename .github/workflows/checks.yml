@@ -15,6 +15,23 @@ concurrency:
 permissions:
   contents: read
 
+# The runner image is pinned rather than left on `ubuntu-latest`, and the pin is
+# load-bearing: when that label migrated to Ubuntu 26, all four test jobs began
+# failing on an unchanged tree while lint, types and package kept passing. The
+# same tree on `ubuntu-24.04` passes on all four interpreters. The three jobs that
+# survived are the three that assert nothing about arithmetic, and the suite checks
+# double precision against mpmath at fifty digits, so a different C library under
+# `math` is enough to move it.
+#
+# This is a hold, not a fix. Which assertions moved is still unknown, and the two
+# candidates -- tolerances tighter than any libm change can respect, or a
+# dependence on platform `libm` that should not be there -- need the job logs to
+# tell apart. Ubuntu 24.04 runners will not last, so the pin buys time to do that
+# properly instead of loosening a tolerance, which would hide either cause.
+#
+# See the issue referenced in the pull request that added this comment before
+# removing the pin.
+
 jobs:
   # The test suite runs on every interpreter the package claims to support in
   # requires-python. The numerics are the reason this matters: the library is
@@ -24,7 +41,7 @@ jobs:
   # would miss.
   tests:
     name: tests (python ${{ matrix.python }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -49,7 +66,7 @@ jobs:
   # report the same result four times.
   types:
     name: types
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -67,7 +84,7 @@ jobs:
 
   lint:
     name: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -100,7 +117,7 @@ jobs:
   # pushed tag, where a version cannot be reissued.
   package:
     name: package
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
