@@ -137,7 +137,7 @@ vega(option)                     # 24.433893679...
 Recovering the volatility from a quoted price:
 
 ```python
-from moneyness.implied import Quote, solve
+from moneyness import Quote, solve
 
 quote = Quote(spot=100.0, strike=95.0, time=0.5, rate=0.04, price=10.0434156286)
 solve(quote, OptionType.CALL).vol   # 0.22
@@ -181,6 +181,44 @@ result = fair_variance(otm, forward=100.0, time=1.0, discount=1.0, width=5.0)
 result.fair_variance                              # 0.039999999999068...
 model.expected_integrated_variance(1.0) / 1.0     # 0.04 exactly
 ```
+
+### Where the module is the interface
+
+That last example imports `price` from `moneyness.heston` rather than from
+`moneyness`, and the reason is worth stating rather than leaving as an
+apparent inconsistency.
+
+Three models here offer the same operation. Black-Scholes-Merton, Heston and
+the quanto contract all have a `price`. Heston and SABR both have a `smile`.
+SVI and SABR both have a `calibrate` and a `density`. Both simulators have a
+`european`, an `asian` and a `barrier`. The package root is one flat
+namespace, so it can carry one of each — which leaves eight names arriving
+from more than one place, and nine declarations reached through their own
+module instead:
+
+| name | the root carries | reached through its module | because the two differ |
+|---|---|---|---|
+| `asian` | `monte_carlo` | `heston_mc` | lognormal paths against a stochastic-variance path |
+| `barrier` | `monte_carlo` | `heston_mc` | lognormal paths against a stochastic-variance path |
+| `european` | `monte_carlo` | `heston_mc` | lognormal paths against a stochastic-variance path |
+| `calibrate` | `svi` | `sabr` | a slice fitted in total variance against two SABR parameters |
+| `density` | `svi` | `sabr` | the density of an SVI slice against the one Hagan's smile implies |
+| `parity_gap` | `bsm` | `quanto` | one currency against the forward a cross-currency contract implies |
+| `price` | `bsm` | `heston`, `quanto` | a closed form against a transform and against a cross-currency payoff |
+| `smile` | `heston` | `sabr` | strikes repriced through the transform against Hagan's expansion |
+
+Renaming them to fit would be the other way out, and it is worse:
+`heston.price` is the price, and a caller holding a `Heston` wants it under
+that name. So the module is the access path, and
+`tests/test_declared_surface.py` holds this table to the source — that every
+module named really declares the name, that the root really binds the one in
+the second column, and that nothing new has quietly joined the list. Changing
+the order of the imports in `__init__.py` is all it would take to hand callers
+a different `price`, and that test is what notices.
+
+Every other example on this page imports from `moneyness` directly. A
+submodule import here means the name is in the table above, and the same test
+checks that too.
 
 ## The decision that mattered
 

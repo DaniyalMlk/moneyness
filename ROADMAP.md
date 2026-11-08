@@ -958,3 +958,42 @@ on panel edges, so removing the insertion left the suite green. At one panel per
 unit on a nearly-intrinsic pair that insertion is the difference between 2.2e-07
 and 5.7e-05 relative, and it is pinned now, with a smooth pair asserted
 insensitive so that the claim is about the kink rather than about panels.
+
+## Phase 23 — Eight names, three models, one flat namespace
+
+Black-Scholes-Merton, Heston and the quanto contract all have a `price`. Heston
+and SABR both have a `smile`. SVI and SABR both have a `calibrate` and a
+`density`. Both simulators have a `european`, an `asian` and a `barrier`. The
+package root is one flat namespace, so eight names arrive from more than one
+module and nine declarations lose.
+
+That is the right shape — `heston.price` is the price, and a caller holding a
+`Heston` wants it under that name — but nothing said so. The README imported
+`price` from `moneyness.heston` in the middle of a page whose other examples
+import from the root, where a workaround reads as a style choice.
+
+- [x] The eight collisions tabulated, with the module the root carries each name
+      from, the modules it shadows, and what distinguishes them
+- [x] The table asserted to be exactly the set of multiply-declared names, in
+      both directions, so a new collision is a decision rather than an import
+- [x] Every module the table names asserted to declare the name, so a rename
+      cannot leave a stale row
+- [x] The root asserted to bind the winner, since reordering the imports in
+      `__init__.py` is all it would take to hand callers another model's price
+      and nothing else looked at that
+- [x] `optimise` recorded alongside `cli` as deliberately absent from the root,
+      with the reasoning, because an undocumented absence and an oversight look
+      identical
+- [x] A README example asserted to reach into a module only for a name the root
+      cannot supply — one imported `Quote` and `solve` from `moneyness.implied`
+      while both sit at the root, which is what made the `heston` one hard to
+      read as deliberate
+- [x] The probe reading `__all__` from the syntax tree rather than from the
+      imported module's attributes, since three of `deferred`'s exports are bare
+      numbers and carry no `__module__`
+- [x] Eleven ways of breaking it confirmed to fail first, each by the rule aimed
+      at it
+
+`ruff` was never going to find this. `F811` fires on a redefinition, and a
+redefinition needs both sides in one namespace; the root imports one side of
+each pair.
