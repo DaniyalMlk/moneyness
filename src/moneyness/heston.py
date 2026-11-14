@@ -59,6 +59,7 @@ __all__ = [
     "Branch",
     "Contract",
     "Heston",
+    "SmilePoint",
     "branch_discrepancy",
     "char_func",
     "gil_pelaez_price",

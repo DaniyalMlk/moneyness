@@ -40,6 +40,9 @@ from .bsm import (
     price,
 )
 from .deferred import (
+    CRITICAL_ITERATIONS,
+    CRITICAL_LOWER,
+    CRITICAL_UPPER,
     BadDeferral,
     ChooserLegs,
     Compound,
@@ -85,9 +88,20 @@ from .heston_mc import (
     Scheme,
     conditional_mean,
     conditional_variance,
+    paths,
     variance_path,
 )
-from .implied import Bounds, Method, Quote, Solution, bounds, implied_vol, solve
+from .implied import (
+    Bounds,
+    Method,
+    Quote,
+    Solution,
+    black,
+    black_vega,
+    bounds,
+    implied_vol,
+    solve,
+)
 from .lattice import (
     Exercise,
     Lattice,
@@ -176,6 +190,7 @@ from .sabr import (
 # answers a question -- where to split a super-replicating portfolio -- that
 # only makes sense alongside the bound it serves.
 from .spread import (
+    FLOOR_EPSILONS,
     AssetPair,
     SpreadBounds,
     SpreadError,
@@ -183,10 +198,12 @@ from .spread import (
     critical_states,
     exchange,
     half_space_bound,
+    half_space_value,
     kirk,
     spread_bounds,
     spread_price,
     truncation_bound,
+    vanilla_split,
     vanilla_upper_bound,
 )
 from .surface import Calendar, LocalVol, Surface
@@ -212,6 +229,10 @@ __version__ = "0.1.0"
 __all__ = [
     "BARRIER_DIGITS",
     "CARRY_CROSSOVER",
+    "CRITICAL_ITERATIONS",
+    "CRITICAL_LOWER",
+    "CRITICAL_UPPER",
+    "FLOOR_EPSILONS",
     "SVI",
     "AsianBounds",
     "AssetPair",
@@ -280,6 +301,8 @@ __all__ = [
     "beyond_term",
     "bjerksund_stensland",
     "bjerksund_stensland_2002",
+    "black",
+    "black_vega",
     "boundary",
     "bounds",
     "branch_discrepancy",
@@ -322,6 +345,7 @@ __all__ = [
     "geometric_asian",
     "gil_pelaez_price",
     "half_space_bound",
+    "half_space_value",
     "implied_fx_pair",
     "implied_normal_vol",
     "implied_vol",
@@ -349,6 +373,7 @@ __all__ = [
     "normal_volatility",
     "parity_difference",
     "parity_gap",
+    "paths",
     "price",
     "price_bounds",
     "price_lattice",
@@ -373,6 +398,7 @@ __all__ = [
     "truncation_bound",
     "truncation_error",
     "turnbull_wakeman",
+    "vanilla_split",
     "vanilla_term",
     "vanilla_upper_bound",
     "vanna",

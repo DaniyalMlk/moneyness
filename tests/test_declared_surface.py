@@ -43,6 +43,12 @@ stale README count, an example reaching in for a name the root already has, a
 new collision, and a new module the root never imports. Eleven breaks, eleven
 caught by the rule aimed at them.
 
+The equality below was broken four more ways, in both directions: a name going
+public in its module with nobody adding it to the root, the root keeping a name
+its own module stopped declaring, a name dropped from the root while its module
+still declares it, and a name imported by the root and never declared. Four
+breaks, four caught.
+
 **The probe reads source, not the imported module.** Asking the package which
 attributes it has would be shorter and would miss things: a name bound to a bare
 ``int`` or ``float`` carries no ``__module__`` to attribute it with, and three of
@@ -289,6 +295,55 @@ def test_shadowed_declarations_stay_reachable_through_their_module() -> None:
                 f"{module}.{collision.name} is the access path the README "
                 "documents, and the module no longer declares it"
             )
+
+
+def test_the_root_is_exactly_the_union_of_the_public_modules() -> None:
+    """An equality, not a containment, and in both directions.
+
+    A module putting a name in its ``__all__`` is the module saying that name is
+    public. The root is where a caller looks, so the two have to agree, and the
+    only reasons a declared name may be absent are the two recorded above: it
+    belongs to a module-only module, or it is a collision loser reached through
+    its own module. Both of those are tables rather than judgements made at read
+    time.
+
+    Written as a containment this would have passed for as long as it existed.
+    Nine names were public in their own module and absent from the root --
+    ``black`` and ``black_vega``, ``paths``, three of ``spread``'s, and
+    ``deferred``'s three ``CRITICAL_*`` solver bounds -- none of them colliding
+    with anything. The precedent for exporting a module's tuning constants was
+    already set in the other direction by ``BARRIER_DIGITS`` and
+    ``CARRY_CROSSOVER``, which are at the root.
+
+    The reverse direction matters as much. ``SmilePoint`` was in the root's
+    ``__all__`` and not in ``heston``'s, so ``from moneyness.heston import *``
+    handed back ``smile`` without the type of its own return value.
+    """
+    modules = _modules()
+    union = {
+        name
+        for module, names in modules.items()
+        if module not in MODULE_ONLY
+        for name in names
+    }
+    root_all = declared_names((PACKAGE / "__init__.py").read_text())
+    assert root_all is not None
+
+    assert set(root_all) == union | {"__version__"}, (
+        "public in a module and missing from the root: "
+        f"{sorted(union - set(root_all))}; "
+        "at the root and declared by no public module: "
+        f"{sorted(set(root_all) - union - {'__version__'})}"
+    )
+
+
+def test_the_root_declares_every_name_it_imports() -> None:
+    """Nothing reaches the root without being named in its ``__all__``."""
+    init = (PACKAGE / "__init__.py").read_text()
+    root_all = declared_names(init)
+    assert root_all is not None
+    undeclared = sorted(set(root_bindings(init)) - set(root_all))
+    assert not undeclared, f"imported by the root but not in its __all__: {undeclared}"
 
 
 def test_no_shadowed_name_is_at_the_root_under_its_own_module() -> None:
