@@ -1053,3 +1053,27 @@ throughout because nothing in it read either document.
       title names
 - [x] Nine ways of breaking the documents confirmed to fail first, the
       documents on `main` before this change among them
+
+## Phase 26 — A carry that was never checked
+
+`Inputs`, `heston.Contract` and `implied.Quote` each validated finiteness with
+a loop over a hand-written tuple of field names. The loop had been copied three
+times and every copy left out `carry`, the one optional field, so a NaN or
+infinite carry was accepted and priced. A carry of minus infinity priced a put
+at 95.12 with nothing to say it was wrong, and the command line printed
+`call  nan` and exited 0 on `--dividend nan`.
+
+- [x] All three records refusing a non-finite carry with the message every
+      other field already gave, and the dividend route reaching the same check
+- [x] The command line exiting 1 with that message, for `--carry` and
+      `--dividend`, instead of printing `nan`
+- [x] Every float field of every public record that validates set to NaN and to
+      both infinities and required to be refused; twelve records, three of
+      which failed before this change
+- [x] A refusal counted only when the error names the field, since arithmetic
+      failing downstream raises a `ValueError` too and names nothing
+- [x] The table of records asserted to cover every public dataclass with a
+      validator, so a new one joins the sweep or fails it
+- [x] Six ways of breaking it confirmed to fail first: each of the three fixes
+      reverted, a record dropped from the table, the field filter narrowed to
+      plain `float`, and any `ValueError` counted as a refusal

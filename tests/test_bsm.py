@@ -200,6 +200,9 @@ def test_d1_d2_refuses_degenerate_inputs() -> None:
         ({"spot": math.nan}, "finite"),
         ({"rate": math.inf}, "finite"),
         ({"vol": math.nan}, "vol"),
+        ({"carry": math.nan}, "carry must be finite"),
+        ({"carry": math.inf}, "carry must be finite"),
+        ({"carry": -math.inf}, "carry must be finite"),
     ],
 )
 def test_invalid_inputs_raise(kwargs: dict[str, float], message: str) -> None:
@@ -207,6 +210,15 @@ def test_invalid_inputs_raise(kwargs: dict[str, float], message: str) -> None:
     base.update(kwargs)
     with pytest.raises(ValueError, match=message):
         Inputs(**base)
+
+
+def test_a_non_finite_dividend_is_refused_as_the_carry_it_becomes() -> None:
+    # The dividend yield is turned into a carry before the record exists, so
+    # the refusal names the carry. Before it did, a carry of minus infinity
+    # priced the put at a plain-looking 95.12 rather than failing.
+    for dividend in (math.nan, math.inf, -math.inf):
+        with pytest.raises(ValueError, match="carry must be finite"):
+            Inputs.with_dividend(100.0, 100.0, 1.0, 0.05, 0.2, dividend)
 
 
 def test_inputs_are_immutable() -> None:

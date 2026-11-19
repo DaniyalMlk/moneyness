@@ -343,6 +343,19 @@ def test_invalid_market_data_exits_cleanly(capsys: pytest.CaptureFixture[str]) -
     assert "spot" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("flag", ["--carry", "--dividend"])
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+def test_a_non_finite_carry_exits_cleanly(
+    flag: str, value: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Before the record checked its carry this printed "call  nan" and exited 0.
+    market = ["--spot", "100", "--strike", "100", "--time", "1", "--rate", "0.05"]
+    assert main(["price", *market, "--vol", "0.2", f"{flag}={value}"]) == 1
+    captured = capsys.readouterr()
+    assert "carry must be finite" in captured.err
+    assert captured.out == ""
+
+
 def test_a_single_strike_ladder_does_not_divide_by_zero(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

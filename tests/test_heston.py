@@ -140,6 +140,11 @@ class TestContract:
         with pytest.raises(ValueError, match="must be finite"):
             Contract(100.0, 100.0, 1.0, math.nan)
 
+    @pytest.mark.parametrize("carry", [math.nan, math.inf, -math.inf])
+    def test_a_non_finite_carry_is_refused(self, carry: float) -> None:
+        with pytest.raises(ValueError, match="carry must be finite"):
+            Contract(100.0, 100.0, 1.0, 0.02, carry)
+
 
 class TestCharacteristicFunction:
     def test_it_is_one_at_zero(self) -> None:

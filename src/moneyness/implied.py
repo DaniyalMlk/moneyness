@@ -126,6 +126,8 @@ class Quote:
             value = getattr(self, name)
             if value != value or math.isinf(value):
                 raise ValueError(f"{name} must be finite, got {value}")
+        if self.carry is not None and not math.isfinite(self.carry):
+            raise ValueError(f"carry must be finite, got {self.carry}")
         if self.spot <= 0.0:
             raise ValueError(f"spot must be positive, got {self.spot}")
         if self.strike <= 0.0:

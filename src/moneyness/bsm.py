@@ -91,6 +91,8 @@ class Inputs:
             value = getattr(self, name)
             if value != value or math.isinf(value):
                 raise ValueError(f"{name} must be finite, got {value}")
+        if self.carry is not None and not math.isfinite(self.carry):
+            raise ValueError(f"carry must be finite, got {self.carry}")
 
     @property
     def b(self) -> float:
