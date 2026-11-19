@@ -112,9 +112,14 @@ disagrees with either.
 
 ```bash
 # after the version bump has landed on main
-git tag v0.1.0
-git push origin v0.1.0
+version=$(python -c 'import moneyness; print(moneyness.__version__)')
+git tag "v$version"
+git push origin "v$version"
 ```
+
+0.1.0 is published, and an index never accepts a version a second time, so a
+release that should reach anyone starts with a new `version` in
+`pyproject.toml`.
 
 The tag builds the sdist and the wheel, installs each into a clean environment,
 runs the entry point out of both, and then publishes. Publishing uses the index's
@@ -1424,19 +1429,17 @@ and nothing short of installing it will say so.
 
 ## Status
 
-Phases 1 to 3 of [the roadmap](ROADMAP.md) are in place — the pricing core, the
-Greeks, and implied-volatility solving — along with phase 4, which adds American
-exercise on binomial and trinomial lattices with the early-exercise boundary and
-the Bjerksund-Stensland closed form, and phase 5, the volatility surface: SVI
-slices and their calibration, both arbitrage conditions, and Dupire local
-volatility. Most of the command-line interface from phase 7 is there too.
+Phases 1 to 3 of [the roadmap](ROADMAP.md) are the pricing core, the Greeks and
+implied-volatility solving. Phase 4 adds American exercise on binomial and
+trinomial lattices, with the early-exercise boundary and the Bjerksund-Stensland
+closed form, and phase 5 the volatility surface: SVI slices and their
+calibration, both arbitrage conditions, and Dupire local volatility.
 
-Phase 6 is in place too: an exact Monte Carlo with antithetic and control
-variates, Asian and barrier payoffs, and the Brownian bridge correction.
-
-Phase 7 is complete: the command line covers pricing, Greeks, implied
-volatility, a strike ladder, a term structure, American valuation and surface
-fitting with arbitrage reporting.
+Phase 6 is an exact Monte Carlo with antithetic and control variates, Asian and
+barrier payoffs, and the Brownian bridge correction. Phase 7 is the command
+line: pricing, Greeks, implied volatility, a strike ladder, a term structure,
+American valuation and surface fitting with arbitrage reporting. Phase 8 is the
+packaging and the tag-driven release that put 0.1.0 on the index.
 
 Phase 9 adds a second model: Heston's stochastic volatility, its
 characteristic function in the branch-stable grouping, two independent
@@ -1498,5 +1501,21 @@ future breaks it; two groupings that fail in opposite regimes hold it to 3.3e-13
 across the sweep. And the monitoring table has to be simulated rather than
 corrected, which is where the 17.8% gap at a monthly fix comes from.
 
-Every item on [the roadmap](ROADMAP.md) is now done except the first release
-on the package index, which waits on the publisher being registered there.
+Phase 18 prices the two contracts where the holder decides something before
+maturity: the simple chooser, decomposed into the vanilla pair parity says it
+is, and all four compound options with the critical spot returned. Phase 19 is
+cross-currency — foreign struck, quanto, composite and equity-linked — each
+checked against a two-asset simulation, with the correlation's sign tied to
+which way the rate is quoted.
+
+Phases 20 to 24 are about the package being what it says it is. Phase 20 puts
+help on every command-line option and renders `--help` for every subcommand in
+CI. Phase 21 moves the evidence above the install line, recomputed by a script
+against a fifty-digit reference. Phase 22 makes a gate of the documented
+parameters no call site had ever chosen, two of which were not keeping their
+promise. Phase 23 tabulates the eight names more than one model defines and
+pins which one the root hands out. Phase 24 makes the root exactly the union of
+what the modules declare.
+
+All twenty-four phases in [the roadmap](ROADMAP.md) are done, and 0.1.0 is on
+the package index.
