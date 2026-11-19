@@ -89,8 +89,8 @@ an independent method that should agree to a stated tolerance.
       refusing to publish when the tag and the declared version disagree
 - [x] The sdist and the wheel each installed into a clean environment, with the
       entry point run out of both, on pull requests as well as on a tag
-- [ ] A first release on the index, which waits on the publisher being registered
-      there for this project
+- [x] A first release on the index: 0.1.0, wheel and sdist, published by the
+      tag-driven workflow with provenance attached to both
 
 ## Phase 9 — Stochastic volatility
 
@@ -736,7 +736,6 @@ none of this module's own arithmetic in them.
       maturity
 - [x] A command-line route that prints the residual of every identity beside
       the price it checks
-- [ ] A first release on the package index
 
 ### The decomposition is the contract, not a check bolted on afterwards
 
