@@ -282,10 +282,14 @@ def test_every_reference_names_an_earlier_phase_that_exists(roadmap: str) -> Non
 def test_the_reference_probe_reads_what_is_there(roadmap: str) -> None:
     """Both reference checks pass vacuously if the pattern stops matching.
 
-    The roadmap has three prose references: phase 15 named in phase 16, and
-    phase 14 named twice in phase 17, once capitalised and once not.
+    Phase 16 names phase 15, and phase 17 names phase 14 twice, once
+    capitalised and once not. Phase 25 names the range 1 to 17, phase 8 twice
+    (once inside that range) and phase 18, so the range form is read as well
+    as the single one.
     """
-    assert sorted(cross_references(roadmap)) == [(16, 15), (17, 14), (17, 14)]
+    expected = [(16, 15), (17, 14), (17, 14)]
+    expected += [(25, n) for n in range(1, 18)] + [(25, 8), (25, 18)]
+    assert sorted(cross_references(roadmap)) == sorted(expected)
 
 
 def test_the_decisions_are_numbered_in_order(readme: str) -> None:
