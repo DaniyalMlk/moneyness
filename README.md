@@ -1539,7 +1539,7 @@ cross-currency — foreign struck, quanto, composite and equity-linked — each
 checked against a two-asset simulation, with the correlation's sign tied to
 which way the rate is quoted.
 
-Phases 20 to 26 are about the package being what it says it is. Phase 20 puts
+Phases 20 to 27 are about the package being what it says it is. Phase 20 puts
 help on every command-line option and renders `--help` for every subcommand in
 CI. Phase 21 moves the evidence above the install line, recomputed by a script
 against a fifty-digit reference. Phase 22 makes a gate of the documented
@@ -1550,6 +1550,8 @@ what the modules declare.
 Phase 25 makes the front page and the roadmap recompute what they claim about
 themselves. Phase 26 closes a validation hole the same loop had in three
 records: none of them checked that the carry was finite.
+Phase 27 lists what the package does not do, with a check behind each line
+that fails when the gap closes.
 
-All twenty-six phases in [the roadmap](ROADMAP.md) are done, and 0.1.0 is on
+All twenty-seven phases in [the roadmap](ROADMAP.md) are done, and 0.1.0 is on
 the package index.

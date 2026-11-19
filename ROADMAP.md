@@ -1077,3 +1077,27 @@ at 95.12 with nothing to say it was wrong, and the command line printed
 - [x] Six ways of breaking it confirmed to fail first: each of the three fixes
       reverted, a record dropped from the table, the field filter narrowed to
       plain `float`, and any `ValueError` counted as a refusal
+
+## Phase 27 — What the package does not do
+
+The front page documented a great deal of deliberate behaviour and nothing
+that was simply absent. Six absences came out of the public signatures, none
+of them a choice anything in the code defends.
+
+- [x] A known-gaps section above the test instructions, kept apart from the
+      deliberate refusals, which stay documented where they happen
+- [x] One predicate per line, each calling an entry point or pinning an exact
+      signature or result type, so the feature arriving under any name fails it
+- [x] The calibration scan walking every module rather than the root, because
+      the root's `calibrate` is SVI's and a root-only scan could not see
+      SABR's, nor a Heston fit shadowed the same way; checked against both
+- [x] The scan reading through a result record as well as a direct return,
+      since a fitted model usually comes back inside one
+- [x] The implied-volatility bias measured rather than described, with the
+      European price at the same volatility inverted beside it as the control,
+      and the figure on the page recomputed to the digit it is quoted to
+- [x] The page and the predicates held to the same lines in the same order, and
+      the section bounded by the heading that follows it
+- [x] Ten ways of breaking it confirmed to fail first: each gap closed under a
+      name its predicate never mentions, a bullet removed, a bullet added with
+      no predicate, the quoted figure moved, and a section inserted below
