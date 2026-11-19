@@ -1407,6 +1407,37 @@ contracts equal today's rate times the foreign-currency option to within six
 parts in 1e15. A simulation cannot catch a strike written in the wrong currency,
 because the simulation would be wrong the same way; this collapse can.
 
+## Known gaps
+
+What the package does not do. Each line is checked by
+`tests/test_known_gaps.py`, which fails when the gap closes, so a line cannot
+outlive the thing it describes. Deliberate refusals, like a quote below
+intrinsic having no implied volatility, are documented where they happen and
+are not listed here.
+
+- **Dividends are a continuous yield.** A cash amount paid on a date cannot be
+  written down anywhere: not in `Inputs`, not on a lattice, not in the
+  finite-difference solver. It matters most for an American call, whose only
+  reason to be exercised early is a dividend.
+- **Rates and carry are constants.** Every pricer takes one rate and one carry
+  for the life of the option. The finite-difference solver already takes a
+  volatility that varies with spot and time, and a rate in that form is
+  refused.
+- **Heston can be priced and not calibrated.** SABR and SVI fit to quotes;
+  Heston takes its five parameters as given.
+- **There is no early exercise under Heston.** Every Heston route, transform
+  and simulation alike, prices a European. The finite-difference solver, the
+  one route to early exercise off a lattice, takes a local volatility and
+  cannot take a stochastic one.
+- **Implied volatility inverts the European price only.** Given an American
+  price it returns the volatility at which a European would cost as much. A
+  one-year at-the-money American put with an 8% rate, priced at 20%
+  volatility on 2,000 steps, reads back as 22.4%: the early-exercise premium
+  taken for volatility.
+- **A lattice or a simulation returns no Greeks.** Each returns a price and,
+  for a simulation, its standard error; hedge ratios off them mean differencing
+  by hand. The finite-difference solver does return delta and gamma.
+
 ## Running the tests
 
 ```bash
@@ -1508,7 +1539,7 @@ cross-currency — foreign struck, quanto, composite and equity-linked — each
 checked against a two-asset simulation, with the correlation's sign tied to
 which way the rate is quoted.
 
-Phases 20 to 26 are about the package being what it says it is. Phase 20 puts
+Phases 20 to 27 are about the package being what it says it is. Phase 20 puts
 help on every command-line option and renders `--help` for every subcommand in
 CI. Phase 21 moves the evidence above the install line, recomputed by a script
 against a fifty-digit reference. Phase 22 makes a gate of the documented
@@ -1519,6 +1550,8 @@ what the modules declare.
 Phase 25 makes the front page and the roadmap recompute what they claim about
 themselves. Phase 26 closes a validation hole the same loop had in three
 records: none of them checked that the carry was finite.
+Phase 27 lists what the package does not do, with a check behind each line
+that fails when the gap closes.
 
-All twenty-six phases in [the roadmap](ROADMAP.md) are done, and 0.1.0 is on
+All twenty-seven phases in [the roadmap](ROADMAP.md) are done, and 0.1.0 is on
 the package index.
