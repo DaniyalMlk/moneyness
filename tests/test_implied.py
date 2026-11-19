@@ -263,6 +263,8 @@ def test_bounds_are_the_limits_of_the_price() -> None:
         ({"price": -1.0}, "price"),
         ({"spot": math.nan}, "finite"),
         ({"price": math.inf}, "finite"),
+        ({"carry": math.nan}, "carry must be finite"),
+        ({"carry": -math.inf}, "carry must be finite"),
     ],
 )
 def test_invalid_quotes_raise(kwargs: dict[str, float], message: str) -> None:
