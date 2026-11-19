@@ -89,8 +89,8 @@ an independent method that should agree to a stated tolerance.
       refusing to publish when the tag and the declared version disagree
 - [x] The sdist and the wheel each installed into a clean environment, with the
       entry point run out of both, on pull requests as well as on a tag
-- [ ] A first release on the index, which waits on the publisher being registered
-      there for this project
+- [x] A first release on the index: 0.1.0, wheel and sdist, published by the
+      tag-driven workflow with provenance attached to both
 
 ## Phase 9 — Stochastic volatility
 
@@ -736,7 +736,6 @@ none of this module's own arithmetic in them.
       maturity
 - [x] A command-line route that prints the residual of every identity beside
       the price it checks
-- [ ] A first release on the package index
 
 ### The decomposition is the contract, not a check bolted on afterwards
 
@@ -1027,3 +1026,30 @@ absences were inconsistency rather than decision.
 - [x] Nothing allowed to reach the root without being named in its `__all__`
 - [x] Four more ways of breaking it confirmed to fail first, both directions of
       the equality among them
+
+## Phase 25 — The documents say what happened
+
+The status section narrated phases 1 to 17 for seven phases after the roadmap
+passed them, and closed by saying the first release was still waiting on the
+index after 0.1.0 had been published. The roadmap carried that release as an
+open item twice, the second copy filed under phase 18. The release example
+tagged a version that can never be published again. The suite was green
+throughout because nothing in it read either document.
+
+- [x] The release recorded under phase 8 and the stray copy removed
+- [x] A status section that names every phase and closes on a count
+- [x] The count recomputed from the roadmap's headings, and every phase
+      required to be named in the status narrative rather than only counted
+- [x] A document claiming every phase done held to having no unchecked box
+- [x] The roadmap's numbering held to no duplicate, no gap and no descent, with
+      every cross-reference naming an earlier phase that exists
+- [x] The README's numbered decisions held to running in order with none
+      skipped
+- [x] The release example reading the version off the package instead of
+      naming one
+- [x] Every rule tested against text built for it, since several are not
+      exercised by the documents as they stand — the first version of the
+      reference probe skipped whole heading lines and could not see a phase a
+      title names
+- [x] Nine ways of breaking the documents confirmed to fail first, the
+      documents on `main` before this change among them
