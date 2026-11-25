@@ -84,7 +84,7 @@ pip install -e ".[dev]"      # the reference needs mpmath
 python examples/worked.py    # all seven, non-zero if a figure moves
 ```
 
-Behind them: 6087 tests on Python 3.10 through 3.13.
+Behind them: 6196 tests on Python 3.10 through 3.13.
 
 ## Installing
 
@@ -1551,7 +1551,9 @@ Phase 25 makes the front page and the roadmap recompute what they claim about
 themselves. Phase 26 closes a validation hole the same loop had in three
 records: none of them checked that the carry was finite.
 Phase 27 lists what the package does not do, with a check behind each line
-that fails when the gap closes.
+that fails when the gap closes. Phase 28 takes a private type out of a public
+signature and adds the check that would have caught it: every type a root
+signature is written in can be named from the root.
 
-All twenty-seven phases in [the roadmap](ROADMAP.md) are done, and 0.1.0 is on
+All twenty-eight phases in [the roadmap](ROADMAP.md) are done, and 0.1.0 is on
 the package index.

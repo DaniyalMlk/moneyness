@@ -1101,3 +1101,32 @@ of them a choice anything in the code defends.
 - [x] Ten ways of breaking it confirmed to fail first: each gap closed under a
       name its predicate never mentions, a bullet removed, a bullet added with
       no predicate, the quoted figure moved, and a section inserted below
+
+## Phase 28 — A parameter only a private import could fill
+
+`adaptive_quad` is at the root, and its last parameter was
+`budget: _Budget | None`. The only argument it could take was a private class,
+so every test of it imported `moneyness.quadrature._Budget`, and no caller
+outside the package could reasonably pass one. The surface checks of phase 24
+ask whether each declared name reaches the root, and a private name is declared
+by nobody, so none of them could see it.
+
+- [x] The panel allowance behind `_adaptive_quad`, where the half-line rule
+      passes one count down its whole walk; `adaptive_quad` always starts a
+      fresh one, as it did whenever the argument was omitted
+- [x] A gate on every root function, every public method and property of every
+      root class including those inherited from a package class, and every
+      field of a root class: each package class its annotations mention is the
+      very object the root binds, compared by identity because eight names are
+      declared by more than one module
+- [x] Aliases read from source, because `typing.get_type_hints` expands one
+      before anything can look at it, so a resolved-hint check passes every
+      alias whatever the root does
+- [x] The probe's own rules tested against source written for each, which found
+      its blind spot: `typing.get_args(Callable[[A], B])` hands back the
+      parameters as a plain list, so a class appearing only as a callback's
+      parameter was invisible
+- [x] Four ways of breaking it confirmed to fail first, each caught by the rule
+      aimed at it: the budget restored to the public signature, a same-named
+      class that is not the root's, a public alias absent from the root, and a
+      private class inside a callback's parameter list
