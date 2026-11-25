@@ -228,7 +228,7 @@ class TestTheSurveyItself:
         for certainly_an_option in (
             "spread_price(panels_per_unit=)",
             "calibrate(restarts=)",
-            "adaptive_quad(budget=)",
+            "semi_infinite_quad(initial_width=)",
             "adaptive_quad(tol=)",
         ):
             assert certainly_an_option in named

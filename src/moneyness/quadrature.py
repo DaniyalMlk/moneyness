@@ -204,7 +204,6 @@ def adaptive_quad(
     b: float,
     tol: float = 1e-12,
     order: int = 16,
-    budget: _Budget | None = None,
 ) -> float:
     """Integrate ``f`` over ``[a, b]``, bisecting panels until they agree.
 
@@ -214,16 +213,33 @@ def adaptive_quad(
         b: Upper limit.
         tol: Absolute tolerance on the whole integral.
         order: Points in each panel's rule.
-        budget: Panels the recursion may spend. A fresh one is made when this
-            is omitted; the half-line rule passes its own so the whole walk
-            shares a single allowance.
 
     Returns:
         The estimated integral.
 
     Raises:
         QuadratureError: If ``tol`` is not positive, a limit is not finite, or
-            the panel budget runs out before the integrand resolves.
+            the integrand does not resolve within the panel budget.
+    """
+    return _adaptive_quad(f, a, b, tol, order, _Budget(_MAX_PANELS))
+
+
+def _adaptive_quad(
+    f: Callable[[float], float],
+    a: float,
+    b: float,
+    tol: float,
+    order: int,
+    budget: _Budget,
+) -> float:
+    """:func:`adaptive_quad`, spending from an allowance the caller holds.
+
+    The half-line rule integrates panel after panel and passes one ``budget``
+    to every call, so a walk that bisects hard everywhere is refused once in
+    total rather than allowed a fresh allowance per panel. That is the only
+    reason to hold one, and it is why this is private: the allowance is a
+    :class:`_Budget`, and a public signature written in a type nobody outside
+    the package can name is a parameter nobody outside the package can pass.
     """
     if not (tol > 0.0):
         raise QuadratureError(f"tol must be positive, got {tol}")
@@ -232,8 +248,6 @@ def adaptive_quad(
             raise QuadratureError(f"{name} must be finite, got {value}")
     if a == b:
         return 0.0
-    if budget is None:
-        budget = _Budget(_MAX_PANELS)
     return _adaptive(f, a, b, fixed_quad(f, a, b, order), tol, order, 0, budget)
 
 
@@ -276,7 +290,7 @@ def semi_infinite_quad(
     budget = _Budget(_MAX_PANELS)
     for _ in range(_MAX_EXTENSIONS):
         upper = lower + width
-        piece = adaptive_quad(f, lower, upper, tol=tol, order=order, budget=budget)
+        piece = _adaptive_quad(f, lower, upper, tol, order, budget)
         total += piece
         if abs(piece) <= tol:
             quiet += 1
