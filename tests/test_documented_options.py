@@ -14,7 +14,13 @@ import math
 
 import pytest
 
-from moneyness.quadrature import QuadratureError, _Budget, adaptive_quad, semi_infinite_quad
+from moneyness.quadrature import (
+    QuadratureError,
+    _adaptive_quad,
+    _Budget,
+    adaptive_quad,
+    semi_infinite_quad,
+)
 from moneyness.spread import AssetPair, spread_price
 from moneyness.svi import _VERTICES, SVI, calibrate
 
@@ -179,16 +185,23 @@ class TestTheRestartCount:
 
 
 class TestThePanelBudget:
-    """``adaptive_quad(budget=)``: the panel allowance, shared down one walk."""
+    """The panel allowance, shared down one walk.
+
+    This was ``adaptive_quad(budget=)``, a public parameter whose only possible
+    argument was a private ``_Budget``: every test here had to import it, which
+    no caller outside the package could reasonably do. The allowance belongs to
+    the half-line rule, so it moved behind ``_adaptive_quad`` and these tests
+    followed it there. The behaviour they check is unchanged.
+    """
 
     def test_two_integrals_sharing_one_allowance_spend_from_the_same_count(self) -> None:
         # Which is the whole reason the parameter exists: the half-line rule
         # walks outwards over many panels and a per-call allowance would let it
         # spend without limit in total.
         budget = _Budget(400)
-        first = adaptive_quad(math.sin, 0.0, 1.0, budget=budget)
+        first = _adaptive_quad(math.sin, 0.0, 1.0, 1e-12, 16, budget)
         after_one = budget.left
-        second = adaptive_quad(math.sin, 1.0, 2.0, budget=budget)
+        second = _adaptive_quad(math.sin, 1.0, 2.0, 1e-12, 16, budget)
         assert first == pytest.approx(1.0 - math.cos(1.0), abs=1e-12)
         assert second == pytest.approx(math.cos(1.0) - math.cos(2.0), abs=1e-12)
         assert after_one < 400, "the first integral spent nothing"
@@ -202,7 +215,7 @@ class TestThePanelBudget:
             return math.sin(400.0 * x) * math.exp(-x)
 
         with pytest.raises(QuadratureError, match="panel budget"):
-            adaptive_quad(wiggly, 0.0, 10.0, budget=_Budget(1))
+            _adaptive_quad(wiggly, 0.0, 10.0, 1e-12, 16, _Budget(1))
 
     def test_a_fresh_allowance_is_made_when_none_is_given(self) -> None:
         # The documented default, and the reason the two calls below do not
@@ -217,6 +230,6 @@ class TestThePanelBudget:
         value = semi_infinite_quad(lambda x: math.exp(-x), 0.0)
         assert value == pytest.approx(1.0, abs=1e-12)
         with pytest.raises(QuadratureError):
-            adaptive_quad(
-                lambda x: math.sin(400.0 * x) * math.exp(-x), 0.0, 40.0, budget=_Budget(2)
+            _adaptive_quad(
+                lambda x: math.sin(400.0 * x) * math.exp(-x), 0.0, 40.0, 1e-12, 16, _Budget(2)
             )

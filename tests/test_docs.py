@@ -285,10 +285,12 @@ def test_the_reference_probe_reads_what_is_there(roadmap: str) -> None:
     Phase 16 names phase 15, and phase 17 names phase 14 twice, once
     capitalised and once not. Phase 25 names the range 1 to 17, phase 8 twice
     (once inside that range) and phase 18, so the range form is read as well
-    as the single one.
+    as the single one. Phase 28 names phase 24, whose checks could not see
+    what it fixes.
     """
     expected = [(16, 15), (17, 14), (17, 14)]
     expected += [(25, n) for n in range(1, 18)] + [(25, 8), (25, 18)]
+    expected += [(28, 24)]
     assert sorted(cross_references(roadmap)) == sorted(expected)
 
 
